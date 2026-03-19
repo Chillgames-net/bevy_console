@@ -4,6 +4,12 @@ version = "0.1.0"
 edition = "2024"
 description = "A configurable developer console plugin for Bevy games"
 license = "MIT OR Apache-2.0"
+repository = "https://github.com/Chillgames-net/bevy_console"
+homepage = "https://github.com/Chillgames-net/bevy_console"
+documentation = "https://docs.rs/chill_bevy_console"
+readme = "README.md"
+keywords = ["bevy", "console", "gamedev", "plugin", "dev-tools"]
+categories = ["game-development"]
 
 [lib]
 name = "chill_bevy_console"

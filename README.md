@@ -80,7 +80,6 @@ app.add_systems(Update, handle_movement.run_if(console_closed));
 |-----------|---------------------------------|
 | `help`    | List all registered commands    |
 | `clear`   | Clear the console history       |
-| `version` | Print the plugin version        |
 
 ## License
 
