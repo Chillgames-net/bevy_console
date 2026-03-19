@@ -31,6 +31,17 @@ pub(crate) fn toggle_console(
     overlay_q: Query<Entity, With<DevConsoleOverlay>>,
     assets: Res<ConsoleAssets>,
 ) {
+    // Force-close if disabled while open.
+    if !state.enabled {
+        if state.open {
+            state.open = false;
+            for entity in &overlay_q {
+                commands.entity(entity).despawn();
+            }
+        }
+        return;
+    }
+
     if !keys.just_pressed(config.toggle_key) {
         return;
     }

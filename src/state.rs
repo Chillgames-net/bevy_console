@@ -1,8 +1,11 @@
 use crate::registry::ConsoleRegistry;
 use bevy::prelude::*;
 
-#[derive(Resource, Default)]
+#[derive(Resource)]
 pub struct ConsoleState {
+    /// Whether the console can be opened. Set to `false` to disable the toggle
+    /// key and force-close the console if it is currently open.
+    pub enabled: bool,
     pub open: bool,
     pub input: String,
     pub history: Vec<String>,
@@ -36,6 +39,20 @@ impl ConsoleState {
         self.history.push(line);
         if self.history.len() > 200 {
             self.history.remove(0);
+        }
+    }
+}
+
+impl Default for ConsoleState {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            open: false,
+            input: String::new(),
+            history: Vec::new(),
+            matches: Vec::new(),
+            match_index: 0,
+            pending_command: None,
         }
     }
 }

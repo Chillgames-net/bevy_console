@@ -78,6 +78,70 @@ pub struct ConsoleConfig {
     pub toggle_key: KeyCode,
 }
 
+impl ConsoleConfig {
+    /// Icy blue — the Chillgames look.
+    pub fn chillgames() -> Self {
+        Self {
+            history_bg: Color::srgba(0.07, 0.07, 0.07, 0.96),
+            history_text_color: Color::srgb(0.85, 0.85, 0.85),
+            input_bg: Color::srgba(0.0, 0.0, 0.0, 0.98),
+            input_border_color: Color::srgb(0.35, 0.75, 1.0),
+            input_text_color: Color::WHITE,
+            input_ghost_color: Color::srgba(1.0, 1.0, 1.0, 0.30),
+            dropdown_bg: Color::srgba(0.05, 0.08, 0.12, 0.97),
+            dropdown_border_color: Color::srgb(0.15, 0.40, 0.60),
+            dropdown_item_divider_color: Color::srgba(0.35, 0.75, 1.0, 0.08),
+            dropdown_text_color: Color::srgb(0.60, 0.70, 0.75),
+            dropdown_highlight_bg: Color::srgba(0.35, 0.75, 1.0, 0.12),
+            dropdown_highlight_text_color: Color::srgb(0.75, 0.92, 1.0),
+            ..Self::default()
+        }
+    }
+
+    /// Clean black and white. No color accents.
+    pub fn simple() -> Self {
+        Self::default()
+    }
+
+    /// Black background with green phosphor text.
+    pub fn matrix() -> Self {
+        Self {
+            history_bg: Color::srgba(0.0, 0.04, 0.0, 0.97),
+            history_text_color: Color::srgb(0.15, 0.85, 0.25),
+            input_bg: Color::srgba(0.0, 0.02, 0.0, 0.99),
+            input_border_color: Color::srgb(0.0, 0.90, 0.20),
+            input_text_color: Color::srgb(0.20, 1.0, 0.30),
+            input_ghost_color: Color::srgba(0.0, 0.90, 0.20, 0.30),
+            dropdown_bg: Color::srgba(0.0, 0.06, 0.0, 0.97),
+            dropdown_border_color: Color::srgb(0.0, 0.45, 0.10),
+            dropdown_item_divider_color: Color::srgba(0.0, 0.90, 0.20, 0.08),
+            dropdown_text_color: Color::srgb(0.10, 0.60, 0.18),
+            dropdown_highlight_bg: Color::srgba(0.0, 0.90, 0.20, 0.12),
+            dropdown_highlight_text_color: Color::srgb(0.30, 1.0, 0.45),
+            ..Self::default()
+        }
+    }
+
+    /// Muted blue-gray inspired by the Source engine developer console.
+    pub fn source() -> Self {
+        Self {
+            history_bg: Color::srgba(0.10, 0.11, 0.13, 0.96),
+            history_text_color: Color::srgb(0.82, 0.83, 0.85),
+            input_bg: Color::srgba(0.07, 0.08, 0.10, 0.98),
+            input_border_color: Color::srgb(0.40, 0.43, 0.50),
+            input_text_color: Color::srgb(0.90, 0.91, 0.93),
+            input_ghost_color: Color::srgba(0.90, 0.91, 0.93, 0.25),
+            dropdown_bg: Color::srgba(0.12, 0.13, 0.16, 0.97),
+            dropdown_border_color: Color::srgb(0.25, 0.27, 0.32),
+            dropdown_item_divider_color: Color::srgba(1.0, 1.0, 1.0, 0.05),
+            dropdown_text_color: Color::srgb(0.55, 0.58, 0.65),
+            dropdown_highlight_bg: Color::srgba(0.40, 0.43, 0.50, 0.15),
+            dropdown_highlight_text_color: Color::srgb(0.90, 0.91, 0.93),
+            ..Self::default()
+        }
+    }
+}
+
 impl Default for ConsoleConfig {
     fn default() -> Self {
         Self {
@@ -87,27 +151,27 @@ impl Default for ConsoleConfig {
             dropdown_font_size: 16.0,
 
             history_height_vh: 38.0,
-            history_bg: Color::srgba(0.07, 0.07, 0.07, 0.96),
+            history_bg: Color::srgba(0.05, 0.05, 0.05, 0.96),
             history_padding: 8.0,
-            history_text_color: Color::srgb(0.85, 0.85, 0.85),
+            history_text_color: Color::srgb(0.90, 0.90, 0.90),
 
             input_bg: Color::srgba(0.0, 0.0, 0.0, 0.98),
             input_padding_h: 10.0,
             input_padding_v: 7.0,
             input_border_width: 2.0,
-            input_border_color: Color::srgb(0.35, 0.75, 1.0),
+            input_border_color: Color::WHITE,
             input_text_color: Color::WHITE,
-            input_ghost_color: Color::srgba(1.0, 1.0, 1.0, 0.30),
+            input_ghost_color: Color::srgba(1.0, 1.0, 1.0, 0.25),
             input_prefix: "\u{25b6} ".to_string(),
 
-            dropdown_bg: Color::srgba(0.05, 0.08, 0.12, 0.97),
-            dropdown_border_color: Color::srgb(0.15, 0.40, 0.60),
-            dropdown_item_divider_color: Color::srgba(0.35, 0.75, 1.0, 0.08),
+            dropdown_bg: Color::srgba(0.08, 0.08, 0.08, 0.97),
+            dropdown_border_color: Color::srgb(0.35, 0.35, 0.35),
+            dropdown_item_divider_color: Color::srgba(1.0, 1.0, 1.0, 0.06),
             dropdown_padding_h: 10.0,
             dropdown_padding_v: 5.0,
-            dropdown_text_color: Color::srgb(0.60, 0.70, 0.75),
-            dropdown_highlight_bg: Color::srgba(0.35, 0.75, 1.0, 0.12),
-            dropdown_highlight_text_color: Color::srgb(0.75, 0.92, 1.0),
+            dropdown_text_color: Color::srgb(0.60, 0.60, 0.60),
+            dropdown_highlight_bg: Color::srgba(1.0, 1.0, 1.0, 0.10),
+            dropdown_highlight_text_color: Color::WHITE,
 
             toggle_key: KeyCode::Backquote,
         }
