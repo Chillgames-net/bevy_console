@@ -1,12 +1,12 @@
 [package]
-name = "bevy_chillgames_console"
+name = "chill_bevy_console"
 version = "0.1.0"
 edition = "2024"
 description = "A configurable developer console plugin for Bevy games"
 license = "MIT OR Apache-2.0"
 
 [lib]
-name = "bevy_chillgames_console"
+name = "chill_bevy_console"
 path = "src/lib.rs"
 
 [features]

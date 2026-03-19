@@ -1,11 +1,11 @@
 use crate::config::ConsoleConfig;
-use crate::registry::{CommandFn, ConsoleRegistry};
+use crate::registry::ConsoleRegistry;
 use crate::state::ConsoleState;
 use crate::ui::{ConsoleAssets, DevConsoleOverlay, spawn_console_ui};
+use bevy::ecs::system::SystemId;
 use bevy::input::ButtonState;
 use bevy::input::keyboard::{Key, KeyboardInput};
 use bevy::prelude::*;
-use std::sync::Arc;
 
 // ── Run conditions ────────────────────────────────────────────────────────────
 
@@ -118,11 +118,11 @@ pub(crate) fn execute_pending_commands(world: &mut World) {
 
     let parts: Vec<&str> = cmd_str.split_whitespace().collect();
     let name = parts[0];
-    let args = &parts[1..];
+    let args: Vec<String> = parts[1..].iter().map(|s| s.to_string()).collect();
 
-    let func: Option<CommandFn> = {
+    let system_id: Option<SystemId<In<Vec<String>>, String>> = {
         let registry = world.resource::<ConsoleRegistry>();
-        registry.commands.get(name).map(|def| Arc::clone(&def.func))
+        registry.commands.get(name).map(|def| def.system_id)
     };
 
     // Push the echo before running so commands like `clear` can wipe it.
@@ -130,8 +130,11 @@ pub(crate) fn execute_pending_commands(world: &mut World) {
         .resource_mut::<ConsoleState>()
         .push_line(format!("> {cmd_str}"));
 
-    let result = match func {
-        Some(f) => f(args, world),
+    let result = match system_id {
+        Some(id) => match world.run_system_with(id, args) {
+            Ok(output) => output,
+            Err(err) => format!("System error: {err}"),
+        },
         None => format!("Unknown command: {name}"),
     };
 

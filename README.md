@@ -1,4 +1,4 @@
-# bevy_chillgames_console
+# chill_bevy_console
 
 A configurable developer console plugin for [Bevy](https://bevyengine.org) games.
 
@@ -6,20 +6,20 @@ Press `` ` `` (backtick) to toggle the console open and closed.
 
 ## Version
 
-| `bevy_chillgames_console` | `bevy` |
+| `chill_bevy_console` | `bevy` |
 |---------------------------|--------|
 | `0.1`                     | `0.18` |
 
 ## Usage
 
 ```rust
-use bevy_chillgames_console::{ChillgamesConsole, ConsoleCommand, ConsoleAppExt, console_closed};
+use chill_bevy_console::{ChillConsole, ConsoleAppExt, CommandArgs, console_closed};
 
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
-        .add_plugins(ChillgamesConsole::default())
-        .add_console_command::<SayCommand>()
+        .add_plugins(ChillConsole::default())
+        .add_console_command("say", "say <text> — echo text", say_cmd)
         .add_systems(Update, gameplay_input.run_if(console_closed))
         .run();
 }
@@ -27,16 +27,27 @@ fn main() {
 
 ### Adding commands
 
+Commands are plain Bevy systems that receive `CommandArgs` (`In<Vec<String>>`) and return a `String`:
+
 ```rust
-pub struct SayCommand;
+use chill_bevy_console::CommandArgs;
 
-impl ConsoleCommand for SayCommand {
-    const NAME: &'static str = "say";
-    const USAGE: &'static str = "say <text> — echo text to the console";
+fn say_cmd(In(args): CommandArgs) -> String {
+    args.join(" ")
+}
 
-    fn run(args: &[&str], _world: &mut World) -> String {
-        args.join(" ")
-    }
+app.add_console_command("say", "say <text> — echo text to the console", say_cmd);
+```
+
+Because they're normal Bevy systems, commands can take any system params:
+
+```rust
+fn goto_level_cmd(In(args): CommandArgs, mut level: ResMut<LevelManager>) -> String {
+    let Some(index) = args.first().and_then(|s| s.parse::<usize>().ok()) else {
+        return "Usage: goto_level <index>".to_string();
+    };
+    level.set(index);
+    format!("Jumped to level {index}")
 }
 ```
 
@@ -45,7 +56,7 @@ impl ConsoleCommand for SayCommand {
 Every visual element is configurable via `ConsoleConfig`:
 
 ```rust
-.add_plugins(ChillgamesConsolePlugin {
+.add_plugins(ChillConsolePlugin {
     config: ConsoleConfig {
         font_path: Some("fonts/MyFont.ttf".into()),
         input_border_color: Color::srgb(0.2, 0.8, 0.4),
