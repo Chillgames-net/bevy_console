@@ -1,3 +1,4 @@
+mod args;
 mod commands;
 mod input;
 mod registry;
@@ -6,10 +7,12 @@ mod ui;
 
 pub mod config;
 
+pub use args::Args;
 pub use config::ConsoleConfig;
 pub use registry::ConsoleRegistry;
 pub use state::ConsoleState;
 
+#[cfg(feature = "embedded-font")]
 use bevy::asset::uuid_handle;
 use bevy::prelude::*;
 
@@ -29,14 +32,16 @@ use ui::{ConsoleAssets, update_console_ui};
 
 // ── Command type ───────────────────────────────────────────────────────────────
 
-/// The input type for console command systems: a list of whitespace-split arguments.
+/// The input type for console command systems.
 ///
-/// ```rust,ignore
+/// ```no_run
+/// # use chill_bevy_console::CommandArgs;
+/// # use bevy::prelude::*;
 /// fn say_cmd(In(args): CommandArgs) -> String {
-///     args.join(" ")
+///     args.rest(0)
 /// }
 /// ```
-pub type CommandArgs = In<Vec<String>>;
+pub type CommandArgs = In<Args>;
 
 // ── App extension ──────────────────────────────────────────────────────────────
 
@@ -46,18 +51,20 @@ pub trait ConsoleAppExt {
     /// The system receives the command arguments as `In<Vec<String>>` and must
     /// return a `String` (the output shown in the console, or empty for no output).
     ///
-    /// ```rust,ignore
+    /// ```no_run
+    /// # use chill_bevy_console::{CommandArgs, ConsoleAppExt};
+    /// # use bevy::prelude::*;
     /// fn say_cmd(In(args): CommandArgs) -> String {
     ///     args.join(" ")
     /// }
-    ///
+    /// # let mut app = App::new();
     /// app.add_console_command("say", "say <text> — echo text", say_cmd);
     /// ```
     fn add_console_command<M>(
         &mut self,
         name: &'static str,
         usage: &'static str,
-        system: impl IntoSystem<In<Vec<String>>, String, M> + 'static,
+        system: impl IntoSystem<In<Args>, String, M> + 'static,
     ) -> &mut Self;
 }
 
@@ -66,7 +73,7 @@ impl ConsoleAppExt for App {
         &mut self,
         name: &'static str,
         usage: &'static str,
-        system: impl IntoSystem<In<Vec<String>>, String, M> + 'static,
+        system: impl IntoSystem<In<Args>, String, M> + 'static,
     ) -> &mut Self {
         self.init_resource::<ConsoleRegistry>();
         let system_id = self.world_mut().register_system(system);
@@ -83,7 +90,11 @@ impl ConsoleAppExt for App {
 ///
 /// Use this as a run condition to suppress gameplay input while the console is open:
 ///
-/// ```rust,ignore
+/// ```no_run
+/// # use bevy::prelude::*;
+/// # use chill_bevy_console::console_closed;
+/// # fn handle_movement() {}
+/// # let mut app = App::new();
 /// app.add_systems(Update, handle_movement.run_if(console_closed));
 /// ```
 pub fn console_closed(state: Option<Res<ConsoleState>>) -> bool {
@@ -94,10 +105,14 @@ pub fn console_closed(state: Option<Res<ConsoleState>>) -> bool {
 
 /// The main plugin.
 ///
-/// ```rust,ignore
+/// ```no_run
+/// # use bevy::prelude::*;
+/// # use chill_bevy_console::{ChillConsole, ConsoleConfig};
+/// # let mut app = App::new();
 /// app.add_plugins(ChillConsole::default());
 ///
 /// // Or with custom config:
+/// # let mut app = App::new();
 /// app.add_plugins(ChillConsole {
 ///     config: ConsoleConfig {
 ///         input_border_color: Color::srgb(0.2, 0.8, 0.4),

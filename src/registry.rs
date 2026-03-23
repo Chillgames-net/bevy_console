@@ -1,10 +1,11 @@
+use crate::Args;
 use bevy::ecs::system::SystemId;
 use bevy::prelude::*;
 use std::collections::BTreeMap;
 
 pub struct CommandDef {
     pub usage: &'static str,
-    pub system_id: SystemId<In<Vec<String>>, String>,
+    pub system_id: SystemId<In<Args>, String>,
 }
 
 /// Registry of all commands available in the console.
@@ -21,7 +22,7 @@ impl ConsoleRegistry {
         &mut self,
         name: &str,
         usage: &'static str,
-        system_id: SystemId<In<Vec<String>>, String>,
+        system_id: SystemId<In<Args>, String>,
     ) {
         self.commands
             .insert(name.to_string(), CommandDef { usage, system_id });

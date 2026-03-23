@@ -2,6 +2,7 @@ use crate::config::ConsoleConfig;
 use crate::registry::ConsoleRegistry;
 use crate::state::ConsoleState;
 use crate::ui::{ConsoleAssets, DevConsoleOverlay, spawn_console_ui};
+use crate::Args;
 use bevy::ecs::system::SystemId;
 use bevy::input::ButtonState;
 use bevy::input::keyboard::{Key, KeyboardInput};
@@ -129,9 +130,9 @@ pub(crate) fn execute_pending_commands(world: &mut World) {
 
     let parts: Vec<&str> = cmd_str.split_whitespace().collect();
     let name = parts[0];
-    let args: Vec<String> = parts[1..].iter().map(|s| s.to_string()).collect();
+    let args = Args(parts[1..].iter().map(|s| s.to_string()).collect());
 
-    let system_id: Option<SystemId<In<Vec<String>>, String>> = {
+    let system_id: Option<SystemId<In<Args>, String>> = {
         let registry = world.resource::<ConsoleRegistry>();
         registry.commands.get(name).map(|def| def.system_id)
     };
