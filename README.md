@@ -44,12 +44,12 @@ app.add_console_command("say", "say <text> — echo text to the console", say_cm
 | Method | Returns | Description |
 |---|---|---|
 | `args.get(i)` | `Option<&str>` | Argument at index `i` |
-| `args.parse::<T>(i)` | `Option<Result<T, _>>` | Argument at index `i` parsed as `T` |
+| `args.parse::<T>(i)` | `Option<T>` | Argument at index `i` parsed as `T`, `None` if missing or invalid |
 | `args.rest(i)` | `String` | All arguments from index `i` joined with spaces |
 
 ```rust
 fn teleport_cmd(In(args): CommandArgs) -> String {
-    let (Some(Ok(x)), Some(Ok(y))) = (args.parse::<f32>(0), args.parse::<f32>(1)) else {
+    let (Some(x), Some(y)) = (args.parse::<f32>(0), args.parse::<f32>(1)) else {
         return "Usage: teleport <x> <y>".to_string();
     };
     format!("Teleporting to ({x}, {y})")
@@ -60,7 +60,7 @@ Because they're normal Bevy systems, commands can take any system params:
 
 ```rust
 fn goto_level_cmd(In(args): CommandArgs, mut level: ResMut<LevelManager>) -> String {
-    let Some(Ok(index)) = args.parse::<usize>(0) else {
+    let Some(index) = args.parse::<usize>(0) else {
         return "Usage: goto_level <index>".to_string();
     };
     level.set(index);

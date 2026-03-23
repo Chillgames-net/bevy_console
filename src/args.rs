@@ -8,7 +8,7 @@
 /// # use bevy::prelude::*;
 /// fn greet_cmd(In(args): CommandArgs) -> String {
 ///     let name = args.get(0).unwrap_or("world");
-///     let count: usize = args.parse(1).and_then(|r| r.ok()).unwrap_or(1);
+///     let count: usize = args.parse(1).unwrap_or(1);
 ///     let tail = args.rest(2); // everything after the second arg
 ///     format!("Hello, {name}! (×{count}) {tail}")
 /// }
@@ -30,17 +30,17 @@ impl Args {
 
     /// Parses the argument at `index` as `T`.
     ///
-    /// Returns `None` if the index is out of bounds, `Some(Err(_))` if parsing fails.
+    /// Returns `None` if the index is out of bounds or the value fails to parse.
     ///
     /// ```
     /// # use chill_bevy_console::Args;
     /// let args = Args::from(vec!["42".to_string(), "bad".to_string()]);
-    /// assert_eq!(args.parse::<i32>(0), Some(Ok(42)));
-    /// assert!(args.parse::<i32>(1).unwrap().is_err());
-    /// assert_eq!(args.parse::<i32>(2), None);
+    /// assert_eq!(args.parse::<i32>(0), Some(42));
+    /// assert_eq!(args.parse::<i32>(1), None); // parse failed
+    /// assert_eq!(args.parse::<i32>(2), None); // out of bounds
     /// ```
-    pub fn parse<T: std::str::FromStr>(&self, index: usize) -> Option<Result<T, T::Err>> {
-        self.0.get(index).map(|s| s.parse())
+    pub fn parse<T: std::str::FromStr>(&self, index: usize) -> Option<T> {
+        self.0.get(index)?.parse().ok()
     }
 
     /// Joins all arguments from `start` onwards with spaces.
@@ -105,19 +105,19 @@ mod tests {
     #[test]
     fn parse_valid_integer() {
         let a = args("42");
-        assert_eq!(a.parse::<i32>(0), Some(Ok(42)));
+        assert_eq!(a.parse::<i32>(0), Some(42));
     }
 
     #[test]
     fn parse_valid_float() {
         let a = args("3.14");
-        assert!(matches!(a.parse::<f32>(0), Some(Ok(v)) if (v - 3.14_f32).abs() < 1e-5));
+        assert!(matches!(a.parse::<f32>(0), Some(v) if (v - 3.14_f32).abs() < 1e-5));
     }
 
     #[test]
-    fn parse_invalid_returns_some_err() {
+    fn parse_invalid_returns_none() {
         let a = args("notanumber");
-        assert!(matches!(a.parse::<i32>(0), Some(Err(_))));
+        assert_eq!(a.parse::<i32>(0), None);
     }
 
     #[test]
