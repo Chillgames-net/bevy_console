@@ -5,8 +5,11 @@ use bevy::prelude::*;
 /// Use `ConsoleConfig::default()` for the built-in dark/gold look, or set any
 /// field to customise every visual element before passing it to the plugin:
 ///
-/// ```rust,ignore
-/// app.add_plugins(ChillgamesConsolePlugin {
+/// ```no_run
+/// # use bevy::prelude::*;
+/// # use chill_bevy_console::{ChillConsole, ConsoleConfig};
+/// # let mut app = App::new();
+/// app.add_plugins(ChillConsole {
 ///     config: ConsoleConfig {
 ///         input_border_color: Color::srgb(0.2, 0.8, 0.4),
 ///         toggle_key: KeyCode::F1,

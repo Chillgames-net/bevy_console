@@ -27,7 +27,7 @@ fn main() {
 
 ### Adding commands
 
-Commands are plain Bevy systems that receive `CommandArgs` (`In<Vec<String>>`) and return a `String`:
+Commands are plain Bevy systems that receive `CommandArgs` (`In<Args>`) and return a `String`:
 
 ```rust
 use chill_bevy_console::CommandArgs;
@@ -39,11 +39,28 @@ fn say_cmd(In(args): CommandArgs) -> String {
 app.add_console_command("say", "say <text> — echo text to the console", say_cmd);
 ```
 
+`Args` dereferences to `[String]` (giving you `join`, `len`, `iter`, …) and adds three helpers:
+
+| Method | Returns | Description |
+|---|---|---|
+| `args.get(i)` | `Option<&str>` | Argument at index `i` |
+| `args.parse::<T>(i)` | `Option<T>` | Argument at index `i` parsed as `T`, `None` if missing or invalid |
+| `args.rest(i)` | `String` | All arguments from index `i` joined with spaces |
+
+```rust
+fn teleport_cmd(In(args): CommandArgs) -> String {
+    let (Some(x), Some(y)) = (args.parse::<f32>(0), args.parse::<f32>(1)) else {
+        return "Usage: teleport <x> <y>".to_string();
+    };
+    format!("Teleporting to ({x}, {y})")
+}
+```
+
 Because they're normal Bevy systems, commands can take any system params:
 
 ```rust
 fn goto_level_cmd(In(args): CommandArgs, mut level: ResMut<LevelManager>) -> String {
-    let Some(index) = args.first().and_then(|s| s.parse::<usize>().ok()) else {
+    let Some(index) = args.parse::<usize>(0) else {
         return "Usage: goto_level <index>".to_string();
     };
     level.set(index);
@@ -56,7 +73,7 @@ fn goto_level_cmd(In(args): CommandArgs, mut level: ResMut<LevelManager>) -> Str
 Every visual element is configurable via `ConsoleConfig`:
 
 ```rust
-.add_plugins(ChillConsolePlugin {
+.add_plugins(ChillConsole {
     config: ConsoleConfig {
         font_path: Some("fonts/MyFont.ttf".into()),
         input_border_color: Color::srgb(0.2, 0.8, 0.4),
