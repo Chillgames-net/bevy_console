@@ -69,15 +69,16 @@ pub(crate) fn spawn_console_ui(
             parent.spawn((
                 ConsoleHistory,
                 Node {
-                    flex_direction: FlexDirection::ColumnReverse,
+                    flex_direction: FlexDirection::Column,
                     height: Val::Vh(config.history_height_vh),
                     max_height: Val::Vh(config.history_height_vh),
                     width: Val::Percent(100.0),
-                    overflow: Overflow::clip(),
+                    overflow: Overflow::scroll_y(),
                     padding: UiRect::all(Val::Px(config.history_padding)),
                     ..default()
                 },
                 BackgroundColor(config.history_bg),
+                ScrollPosition::default(),
             ));
 
             // ── Input bar ─────────────────────────────────────────────────────
@@ -142,13 +143,13 @@ pub(crate) fn update_console_ui(
     assets: Res<ConsoleAssets>,
     config: Res<ConsoleConfig>,
     registry: Res<ConsoleRegistry>,
-    history_q: Query<(Entity, Option<&Children>), With<ConsoleHistory>>,
+    mut history_q: Query<(Entity, Option<&Children>, &mut ScrollPosition), With<ConsoleHistory>>,
     mut main_q: Query<&mut Text, (With<ConsoleInputMain>, Without<ConsoleInputGhost>)>,
     mut ghost_q: Query<&mut Text, (With<ConsoleInputGhost>, Without<ConsoleInputMain>)>,
     dropdown_q: Query<(Entity, Option<&Children>), With<ConsoleDropdown>>,
 ) {
     // ── History lines ─────────────────────────────────────────────────────────
-    if let Ok((history_entity, maybe_children)) = history_q.single() {
+    if let Ok((history_entity, maybe_children, mut scroll_pos)) = history_q.single_mut() {
         if let Some(children) = maybe_children {
             for child in children.iter() {
                 commands.entity(child).despawn();
@@ -156,7 +157,7 @@ pub(crate) fn update_console_ui(
         }
         let font = assets.font.clone();
         commands.entity(history_entity).with_children(|parent| {
-            for line in state.history.iter().rev() {
+            for line in state.history.iter() {
                 parent.spawn((
                     Text::new(line.clone()),
                     TextFont {
@@ -168,6 +169,9 @@ pub(crate) fn update_console_ui(
                 ));
             }
         });
+        if state.scroll_follow {
+            scroll_pos.y = f32::MAX;
+        }
     }
 
     // ── Input ─────────────────────────────────────────────────────────────────

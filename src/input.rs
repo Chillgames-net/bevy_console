@@ -1,12 +1,14 @@
+use crate::Args;
 use crate::config::ConsoleConfig;
 use crate::registry::ConsoleRegistry;
 use crate::state::ConsoleState;
 use crate::ui::{ConsoleAssets, DevConsoleOverlay, spawn_console_ui};
-use crate::Args;
 use bevy::ecs::system::SystemId;
 use bevy::input::ButtonState;
 use bevy::input::keyboard::{Key, KeyboardInput};
+use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
 use bevy::prelude::*;
+use bevy::ui::{ComputedNode, ScrollPosition};
 
 // ── Run conditions ────────────────────────────────────────────────────────────
 
@@ -90,6 +92,7 @@ pub(crate) fn capture_console_input(
                 state.input.clear();
                 state.matches.clear();
                 state.match_index = 0;
+                state.scroll_follow = true;
                 continue;
             }
             Key::Tab => {
@@ -113,10 +116,60 @@ pub(crate) fn capture_console_input(
                 }
                 continue;
             }
+            Key::End => {
+                state.scroll_follow = true;
+                continue;
+            }
             _ => {}
         }
 
         state.recompute_matches(&registry);
+    }
+}
+
+pub(crate) fn scroll_console(
+    mut mouse_wheel: MessageReader<MouseWheel>,
+    mut state: ResMut<ConsoleState>,
+    mut history_q: Query<(&mut ScrollPosition, &ComputedNode), With<crate::ui::ConsoleHistory>>,
+) {
+    let pixels: f32 = mouse_wheel
+        .read()
+        .map(|ev| match ev.unit {
+            MouseScrollUnit::Line => ev.y * 20.0,
+            MouseScrollUnit::Pixel => ev.y,
+        })
+        .sum();
+
+    if pixels == 0.0 {
+        return;
+    }
+
+    let Ok((mut scroll_pos, computed)) = history_q.single_mut() else {
+        return;
+    };
+
+    // y = 0 → top (oldest), y = max → bottom (newest).
+    // Wheel up (pixels > 0) → go toward older content → decrease offset.
+    //
+    // When scroll_follow was true, scroll_pos.y may be f32::MAX because Bevy
+    // renders at the clamped bottom but never writes the clamped value back to
+    // the component. Clamp against max_scroll first so the delta is applied
+    // from the real bottom, not from infinity.
+    let max_scroll = (computed.content_size().y - computed.size().y).max(0.0);
+    let current = scroll_pos.y.min(max_scroll);
+    let new_y = (current - pixels).clamp(0.0, max_scroll);
+    scroll_pos.y = new_y;
+
+    if pixels > 0.0 {
+        // Scrolling up — stop following tail.
+        if state.scroll_follow {
+            state.scroll_follow = false;
+        }
+    } else if new_y >= max_scroll - 1.0 {
+        // Scrolled back to the bottom — re-enable tail follow.
+        if !state.scroll_follow {
+            state.scroll_follow = true;
+        }
     }
 }
 

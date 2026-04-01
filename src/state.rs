@@ -14,6 +14,8 @@ pub struct ConsoleState {
     /// Index into `matches` that is currently highlighted.
     pub match_index: usize,
     pub pending_command: Option<String>,
+    /// When true the history panel auto-scrolls to the newest line.
+    pub scroll_follow: bool,
 }
 
 impl ConsoleState {
@@ -53,6 +55,7 @@ impl Default for ConsoleState {
             matches: Vec::new(),
             match_index: 0,
             pending_command: None,
+            scroll_follow: true,
         }
     }
 }

@@ -1,6 +1,6 @@
 [package]
 name = "chill_bevy_console"
-version = "0.1.2"
+version = "0.1.3"
 edition = "2024"
 description = "A configurable developer console plugin for Bevy games"
 license = "MIT OR Apache-2.0"
@@ -25,6 +25,7 @@ bevy = { version = "0.18", default-features = false }
 [dev-dependencies]
 bevy = { version = "0.18", features = [
     "keyboard",
+    "mouse",
     "bevy_asset",
     "bevy_color",
     "bevy_text",
