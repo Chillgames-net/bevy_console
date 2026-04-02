@@ -139,7 +139,7 @@ pub(crate) fn spawn_console_ui(
 
 pub(crate) fn update_console_ui(
     mut commands: Commands,
-    state: Res<ConsoleState>,
+    mut state: ResMut<ConsoleState>,
     assets: Res<ConsoleAssets>,
     config: Res<ConsoleConfig>,
     registry: Res<ConsoleRegistry>,
@@ -150,25 +150,34 @@ pub(crate) fn update_console_ui(
 ) {
     // ── History lines ─────────────────────────────────────────────────────────
     if let Ok((history_entity, maybe_children, mut scroll_pos)) = history_q.single_mut() {
-        if let Some(children) = maybe_children {
-            for child in children.iter() {
-                commands.entity(child).despawn();
+        if state.history_dirty || maybe_children.is_none() {
+            bevy::log::debug!(
+                "update_console_ui: rebuilding {} history lines (dirty={}, no_children={})",
+                state.history.len(),
+                state.history_dirty,
+                maybe_children.is_none(),
+            );
+            if let Some(children) = maybe_children {
+                for child in children.iter() {
+                    commands.entity(child).despawn();
+                }
             }
+            let font = assets.font.clone();
+            commands.entity(history_entity).with_children(|parent| {
+                for line in state.history.iter() {
+                    parent.spawn((
+                        Text::new(line.clone()),
+                        TextFont {
+                            font: font.clone(),
+                            font_size: config.history_font_size,
+                            ..default()
+                        },
+                        TextColor(config.history_text_color),
+                    ));
+                }
+            });
+            state.bypass_change_detection().history_dirty = false;
         }
-        let font = assets.font.clone();
-        commands.entity(history_entity).with_children(|parent| {
-            for line in state.history.iter() {
-                parent.spawn((
-                    Text::new(line.clone()),
-                    TextFont {
-                        font: font.clone(),
-                        font_size: config.history_font_size,
-                        ..default()
-                    },
-                    TextColor(config.history_text_color),
-                ));
-            }
-        });
         if state.scroll_follow {
             scroll_pos.y = f32::MAX;
         }

@@ -16,6 +16,9 @@ pub struct ConsoleState {
     pub pending_command: Option<String>,
     /// When true the history panel auto-scrolls to the newest line.
     pub scroll_follow: bool,
+    /// Set to `true` whenever `history` content changes; cleared by the UI
+    /// system after it rebuilds the history children.
+    pub(crate) history_dirty: bool,
 }
 
 impl ConsoleState {
@@ -42,6 +45,7 @@ impl ConsoleState {
         if self.history.len() > 200 {
             self.history.remove(0);
         }
+        self.history_dirty = true;
     }
 }
 
@@ -56,6 +60,7 @@ impl Default for ConsoleState {
             match_index: 0,
             pending_command: None,
             scroll_follow: true,
+            history_dirty: false,
         }
     }
 }
