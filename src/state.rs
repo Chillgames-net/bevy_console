@@ -14,6 +14,18 @@ pub struct ConsoleState {
     /// Index into `matches` that is currently highlighted.
     pub match_index: usize,
     pub pending_command: Option<String>,
+    /// When true the history panel auto-scrolls to the newest line.
+    pub scroll_follow: bool,
+    /// Set to `true` whenever `history` content changes; cleared by the UI
+    /// system after it rebuilds the history children.
+    pub(crate) history_dirty: bool,
+    /// Previously submitted commands, for Up/Down recall.
+    pub(crate) cmd_history: Vec<String>,
+    /// `Some(i)` while the user is browsing `cmd_history`; `None` otherwise.
+    pub(crate) cmd_history_index: Option<usize>,
+    /// The input that was live when the user started browsing history,
+    /// restored when they navigate back past the newest entry.
+    pub(crate) cmd_history_draft: String,
 }
 
 impl ConsoleState {
@@ -40,6 +52,7 @@ impl ConsoleState {
         if self.history.len() > 200 {
             self.history.remove(0);
         }
+        self.history_dirty = true;
     }
 }
 
@@ -53,6 +66,11 @@ impl Default for ConsoleState {
             matches: Vec::new(),
             match_index: 0,
             pending_command: None,
+            scroll_follow: true,
+            history_dirty: false,
+            cmd_history: Vec::new(),
+            cmd_history_index: None,
+            cmd_history_draft: String::new(),
         }
     }
 }

@@ -26,7 +26,7 @@ pub const UBUNTU_MONO_FONT_HANDLE: Handle<Font> =
 
 use input::{
     capture_console_input, console_open, console_open_and_changed, execute_pending_commands,
-    has_pending_command, toggle_console,
+    has_pending_command, scroll_console, toggle_console,
 };
 use ui::{ConsoleAssets, update_console_ui};
 
@@ -160,6 +160,7 @@ impl Plugin for ChillConsole {
                 (
                     toggle_console,
                     capture_console_input.run_if(console_open),
+                    scroll_console.run_if(console_open),
                     execute_pending_commands.run_if(has_pending_command),
                     update_console_ui.run_if(console_open_and_changed),
                 )
