@@ -151,12 +151,6 @@ pub(crate) fn update_console_ui(
     // ── History lines ─────────────────────────────────────────────────────────
     if let Ok((history_entity, maybe_children, mut scroll_pos)) = history_q.single_mut() {
         if state.history_dirty || maybe_children.is_none() {
-            bevy::log::debug!(
-                "update_console_ui: rebuilding {} history lines (dirty={}, no_children={})",
-                state.history.len(),
-                state.history_dirty,
-                maybe_children.is_none(),
-            );
             if let Some(children) = maybe_children {
                 for child in children.iter() {
                     commands.entity(child).despawn();

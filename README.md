@@ -1,5 +1,7 @@
 # chill_bevy_console
 
+[![Crates.io](https://img.shields.io/crates/v/chill_bevy_console)](https://crates.io/crates/chill_bevy_console)
+
 A configurable developer console plugin for [Bevy](https://bevyengine.org) games.
 
 Press `` ` `` (backtick) to toggle the console open and closed.
