@@ -26,37 +26,46 @@ pub(crate) fn console_open_and_changed(state: Option<Res<ConsoleState>>) -> bool
 
 // ── Systems ───────────────────────────────────────────────────────────────────
 
-pub(crate) fn toggle_console(
-    mut commands: Commands,
+/// Handles the toggle key and the force-close-when-disabled case.
+/// Only mutates `state.open` — UI sync is handled by [`sync_console_ui`].
+pub(crate) fn handle_toggle_key(
     config: Res<ConsoleConfig>,
     keys: Res<ButtonInput<KeyCode>>,
     mut state: ResMut<ConsoleState>,
-    overlay_q: Query<Entity, With<DevConsoleOverlay>>,
-    assets: Res<ConsoleAssets>,
 ) {
-    // Force-close if disabled while open.
     if !state.enabled {
         if state.open {
             state.open = false;
-            for entity in &overlay_q {
-                commands.entity(entity).despawn();
-            }
         }
         return;
     }
 
-    if !keys.just_pressed(config.toggle_key) {
+    if keys.just_pressed(config.toggle_key) {
+        state.open = !state.open;
+    }
+}
+
+/// Spawns or despawns the console UI whenever `state.open` changes.
+/// Reacts to changes from any source (key press, external code, etc.).
+pub(crate) fn sync_console_ui(
+    mut commands: Commands,
+    state: Res<ConsoleState>,
+    overlay_q: Query<Entity, With<DevConsoleOverlay>>,
+    assets: Res<ConsoleAssets>,
+    config: Res<ConsoleConfig>,
+    mut prev_open: Local<bool>,
+) {
+    if *prev_open == state.open {
         return;
     }
+    *prev_open = state.open;
 
     if state.open {
-        state.open = false;
+        spawn_console_ui(&mut commands, &assets, &config);
+    } else {
         for entity in &overlay_q {
             commands.entity(entity).despawn();
         }
-    } else {
-        state.open = true;
-        spawn_console_ui(&mut commands, &assets, &config);
     }
 }
 
