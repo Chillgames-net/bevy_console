@@ -18,6 +18,9 @@ path = "src/lib.rs"
 [features]
 # Embeds assets/UbuntuMono-R.ttf into the binary and uses it as the default font.
 embedded-font = []
+# Loads and saves the user's command history (Up/Down recall) to a plain-text
+# file between runs, controlled by `ConsoleConfig::history_file`.
+persistent-history = []
 
 [dependencies]
 bevy = { version = "0.18", default-features = false }

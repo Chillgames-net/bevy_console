@@ -85,6 +85,30 @@ Every visual element is configurable via `ConsoleConfig`:
 })
 ```
 
+### Persisting console history between runs
+
+Enable the `persistent-history` cargo feature and the entire console display
+(commands and their outputs) is loaded at startup and saved whenever the
+history changes — no extra Rust config needed. Up/Down recall is rebuilt from
+the loaded `> command` echo lines.
+
+```toml
+chill_bevy_console = { version = "0.1", features = ["persistent-history"] }
+```
+
+By default the history is written to `console_history.txt` in the current
+working directory. Override the path or disable persistence per-app via
+`ConsoleConfig`:
+
+```rust
+.add_plugins(ChillConsole {
+    config: ConsoleConfig {
+        history_file: Some("/tmp/my_game_history.txt".into()),
+        ..default()
+    },
+})
+```
+
 ### Blocking gameplay input
 
 Use the `console_closed` run condition to suppress input systems while the console is open:

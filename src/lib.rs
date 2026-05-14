@@ -5,6 +5,9 @@ mod registry;
 mod state;
 mod ui;
 
+#[cfg(feature = "persistent-history")]
+mod persistence;
+
 pub mod config;
 
 pub use args::Args;
@@ -150,9 +153,14 @@ impl Plugin for ChillConsole {
                 .insert(&UBUNTU_MONO_FONT_HANDLE, font);
         }
 
+        #[cfg(feature = "persistent-history")]
+        let initial_state = persistence::load_initial_state(&self.config);
+        #[cfg(not(feature = "persistent-history"))]
+        let initial_state = ConsoleState::default();
+
         app.insert_resource(self.config.clone())
             .init_resource::<ConsoleRegistry>()
-            .init_resource::<ConsoleState>()
+            .insert_resource(initial_state)
             .init_resource::<ConsoleAssets>()
             .add_plugins(commands::plugin)
             .add_systems(
@@ -167,5 +175,8 @@ impl Plugin for ChillConsole {
                 )
                     .chain(),
             );
+
+        #[cfg(feature = "persistent-history")]
+        app.add_plugins(persistence::plugin);
     }
 }

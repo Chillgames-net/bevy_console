@@ -1,4 +1,6 @@
 use bevy::prelude::*;
+#[cfg(feature = "persistent-history")]
+use std::path::PathBuf;
 
 /// All visual and behavioral settings for the developer console.
 ///
@@ -79,6 +81,16 @@ pub struct ConsoleConfig {
     // ── Behavior ──────────────────────────────────────────────────────────────
     /// The key that toggles the console open and closed. Defaults to backtick.
     pub toggle_key: KeyCode,
+
+    // ── Persistence (requires the `persistent-history` feature) ──────────────
+    /// Path to a plain-text file used to persist the console's display history
+    /// (commands and their outputs) between runs. The file is read once at
+    /// startup and rewritten whenever the history changes. Defaults to
+    /// `"console_history.txt"` in the current working directory; set to `None`
+    /// to disable persistence even with the feature enabled. Has no effect on
+    /// web/wasm targets.
+    #[cfg(feature = "persistent-history")]
+    pub history_file: Option<PathBuf>,
 }
 
 impl ConsoleConfig {
@@ -177,6 +189,9 @@ impl Default for ConsoleConfig {
             dropdown_highlight_text_color: Color::WHITE,
 
             toggle_key: KeyCode::Backquote,
+
+            #[cfg(feature = "persistent-history")]
+            history_file: Some(PathBuf::from("console_history.txt")),
         }
     }
 }

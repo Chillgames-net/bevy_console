@@ -7,8 +7,7 @@ pub fn plugin(app: &mut App) {
 }
 
 fn clear_cmd(In(_args): CommandArgs, mut state: ResMut<ConsoleState>) -> String {
-    state.history.clear();
-    state.history_dirty = true;
+    state.clear_history();
     String::new()
 }
 
