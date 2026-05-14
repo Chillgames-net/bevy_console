@@ -34,4 +34,30 @@ bevy = { version = "0.18", features = [
     "bevy_text",
     "bevy_ui",
     "bevy_render",
+    "bevy_window",
+    "bevy_winit",
+    "bevy_sprite",
+    "x11",
+    "default_font",
 ] }
+
+[[example]]
+name = "basic"
+path = "examples/basic.rs"
+
+[[example]]
+name = "commands"
+path = "examples/commands.rs"
+
+[[example]]
+name = "custom_config"
+path = "examples/custom_config.rs"
+
+[[example]]
+name = "gameplay_blocking"
+path = "examples/gameplay_blocking.rs"
+
+[[example]]
+name = "persistent_history"
+path = "examples/persistent_history.rs"
+required-features = ["persistent-history"]
