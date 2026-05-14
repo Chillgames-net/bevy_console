@@ -30,6 +30,9 @@ use input::{
 };
 use ui::{ConsoleAssets, update_console_ui};
 
+#[cfg(feature = "persistent-history")]
+use std::path::Path;
+
 // ── Command type ───────────────────────────────────────────────────────────────
 
 /// The input type for console command systems.
@@ -150,9 +153,18 @@ impl Plugin for ChillConsole {
                 .insert(&UBUNTU_MONO_FONT_HANDLE, font);
         }
 
+        // Pre-populate ConsoleState from the persisted history file (if any),
+        // so that Up/Down recall works on the very first frame.
+        #[allow(unused_mut)]
+        let mut initial_state = ConsoleState::default();
+        #[cfg(feature = "persistent-history")]
+        if let Some(path) = &self.config.history_file {
+            initial_state.cmd_history = load_cmd_history(path, self.config.history_max_entries);
+        }
+
         app.insert_resource(self.config.clone())
             .init_resource::<ConsoleRegistry>()
-            .init_resource::<ConsoleState>()
+            .insert_resource(initial_state)
             .init_resource::<ConsoleAssets>()
             .add_plugins(commands::plugin)
             .add_systems(
@@ -163,9 +175,58 @@ impl Plugin for ChillConsole {
                     capture_console_input.run_if(console_open),
                     scroll_console.run_if(console_open),
                     execute_pending_commands.run_if(has_pending_command),
+                    persist_cmd_history,
                     update_console_ui.run_if(console_open_and_changed),
                 )
                     .chain(),
             );
     }
 }
+
+// ── Command-history persistence ───────────────────────────────────────────────
+
+#[cfg(feature = "persistent-history")]
+fn load_cmd_history(path: &Path, max_entries: usize) -> Vec<String> {
+    let Ok(content) = std::fs::read_to_string(path) else {
+        return Vec::new();
+    };
+    let mut lines: Vec<String> = content
+        .lines()
+        .map(str::trim_end)
+        .filter(|l| !l.is_empty())
+        .map(String::from)
+        .collect();
+    let max = max_entries.max(1);
+    if lines.len() > max {
+        let excess = lines.len() - max;
+        lines.drain(0..excess);
+    }
+    lines
+}
+
+#[cfg(feature = "persistent-history")]
+fn persist_cmd_history(config: Res<ConsoleConfig>, mut state: ResMut<ConsoleState>) {
+    if !state.cmd_history_dirty {
+        return;
+    }
+    state.cmd_history_dirty = false;
+
+    let Some(path) = &config.history_file else {
+        return;
+    };
+
+    let mut content = state.cmd_history.join("\n");
+    if !content.is_empty() {
+        content.push('\n');
+    }
+    if let Err(e) = std::fs::write(path, content) {
+        warn!(
+            "chill_bevy_console: failed to write history file {:?}: {}",
+            path, e
+        );
+    }
+}
+
+/// No-op stub when the `persistent-history` feature is disabled.
+#[cfg(not(feature = "persistent-history"))]
+fn persist_cmd_history() {}

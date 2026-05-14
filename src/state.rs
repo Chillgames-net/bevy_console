@@ -26,6 +26,10 @@ pub struct ConsoleState {
     /// The input that was live when the user started browsing history,
     /// restored when they navigate back past the newest entry.
     pub(crate) cmd_history_draft: String,
+    /// Set to `true` whenever `cmd_history` is mutated; cleared by the
+    /// persistence system after it writes the history file.
+    #[cfg(feature = "persistent-history")]
+    pub(crate) cmd_history_dirty: bool,
 }
 
 impl ConsoleState {
@@ -71,6 +75,8 @@ impl Default for ConsoleState {
             cmd_history: Vec::new(),
             cmd_history_index: None,
             cmd_history_draft: String::new(),
+            #[cfg(feature = "persistent-history")]
+            cmd_history_dirty: false,
         }
     }
 }
