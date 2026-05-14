@@ -85,11 +85,12 @@ Every visual element is configurable via `ConsoleConfig`:
 })
 ```
 
-### Persisting command history between runs
+### Persisting console history between runs
 
-Enable the `persistent-history` cargo feature and the user's command history
-(Up/Down recall) is loaded at startup and saved each time a command is
-submitted — no extra Rust config needed.
+Enable the `persistent-history` cargo feature and the entire console display
+(commands and their outputs) is loaded at startup and saved whenever the
+history changes — no extra Rust config needed. Up/Down recall is rebuilt from
+the loaded `> command` echo lines.
 
 ```toml
 chill_bevy_console = { version = "0.1", features = ["persistent-history"] }
@@ -103,7 +104,6 @@ working directory. Override the path or disable persistence per-app via
 .add_plugins(ChillConsole {
     config: ConsoleConfig {
         history_file: Some("/tmp/my_game_history.txt".into()),
-        history_max_entries: 200, // optional, this is the default
         ..default()
     },
 })

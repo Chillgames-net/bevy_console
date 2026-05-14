@@ -83,17 +83,14 @@ pub struct ConsoleConfig {
     pub toggle_key: KeyCode,
 
     // ── Persistence (requires the `persistent-history` feature) ──────────────
-    /// Path to a plain-text file used to persist the user's command history
-    /// (Up/Down recall) between runs. The file is read once at startup and
-    /// rewritten each time a new command is submitted. Defaults to
+    /// Path to a plain-text file used to persist the console's display history
+    /// (commands and their outputs) between runs. The file is read once at
+    /// startup and rewritten whenever the history changes. Defaults to
     /// `"console_history.txt"` in the current working directory; set to `None`
     /// to disable persistence even with the feature enabled. Has no effect on
     /// web/wasm targets.
     #[cfg(feature = "persistent-history")]
     pub history_file: Option<PathBuf>,
-    /// Maximum number of past commands kept in memory and on disk.
-    #[cfg(feature = "persistent-history")]
-    pub history_max_entries: usize,
 }
 
 impl ConsoleConfig {
@@ -195,8 +192,6 @@ impl Default for ConsoleConfig {
 
             #[cfg(feature = "persistent-history")]
             history_file: Some(PathBuf::from("console_history.txt")),
-            #[cfg(feature = "persistent-history")]
-            history_max_entries: 200,
         }
     }
 }

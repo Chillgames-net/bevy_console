@@ -26,6 +26,10 @@ pub struct ConsoleState {
     /// The input that was live when the user started browsing history,
     /// restored when they navigate back past the newest entry.
     pub(crate) cmd_history_draft: String,
+    /// Monotonic counter incremented every time `history` is mutated through
+    /// `push_line` or `clear_history`. Lets observers (e.g. the persistence
+    /// system) detect changes without subscribing to fine-grained signals.
+    pub(crate) history_mutation_count: u64,
 }
 
 impl ConsoleState {
@@ -53,6 +57,13 @@ impl ConsoleState {
             self.history.remove(0);
         }
         self.history_dirty = true;
+        self.history_mutation_count = self.history_mutation_count.wrapping_add(1);
+    }
+
+    pub fn clear_history(&mut self) {
+        self.history.clear();
+        self.history_dirty = true;
+        self.history_mutation_count = self.history_mutation_count.wrapping_add(1);
     }
 }
 
@@ -71,6 +82,7 @@ impl Default for ConsoleState {
             cmd_history: Vec::new(),
             cmd_history_index: None,
             cmd_history_draft: String::new(),
+            history_mutation_count: 0,
         }
     }
 }

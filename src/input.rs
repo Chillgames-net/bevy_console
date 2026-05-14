@@ -74,10 +74,6 @@ pub(crate) fn capture_console_input(
     mut state: ResMut<ConsoleState>,
     registry: Res<ConsoleRegistry>,
     keys: Res<ButtonInput<KeyCode>>,
-    #[cfg(feature = "persistent-history")] config: Res<ConsoleConfig>,
-    #[cfg(feature = "persistent-history")] mut persistence: ResMut<
-        crate::persistence::PersistenceState,
-    >,
 ) {
     for ev in key_events.read() {
         if ev.state != ButtonState::Pressed {
@@ -124,12 +120,6 @@ pub(crate) fn capture_console_input(
                     // Deduplicate consecutive identical entries.
                     if state.cmd_history.last().map(String::as_str) != Some(cmd.as_str()) {
                         state.cmd_history.push(cmd);
-                        #[cfg(feature = "persistent-history")]
-                        crate::persistence::on_command_submitted(
-                            &mut state,
-                            &config,
-                            &mut persistence,
-                        );
                     }
                 }
                 state.input.clear();
