@@ -154,12 +154,21 @@ impl Plugin for ChillConsole {
         }
 
         // Pre-populate ConsoleState from the persisted history file (if any),
-        // so that Up/Down recall works on the very first frame.
+        // so that Up/Down recall works on the very first frame and the user can
+        // see what they ran in the previous session.
         #[allow(unused_mut)]
         let mut initial_state = ConsoleState::default();
         #[cfg(feature = "persistent-history")]
         if let Some(path) = &self.config.history_file {
             initial_state.cmd_history = load_cmd_history(path, self.config.history_max_entries);
+            if !initial_state.cmd_history.is_empty() {
+                initial_state
+                    .history
+                    .push("── previous session ──".to_string());
+                for cmd in &initial_state.cmd_history {
+                    initial_state.history.push(format!("> {cmd}"));
+                }
+            }
         }
 
         app.insert_resource(self.config.clone())
