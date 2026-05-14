@@ -187,8 +187,22 @@ impl Plugin for ChillConsole {
 
 #[cfg(feature = "persistent-history")]
 fn load_cmd_history(path: &Path, max_entries: usize) -> Vec<String> {
-    let Ok(content) = std::fs::read_to_string(path) else {
-        return Vec::new();
+    let content = match std::fs::read_to_string(path) {
+        Ok(c) => c,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            info!(
+                "chill_bevy_console: history file {:?} not found yet (will be created on first command)",
+                path
+            );
+            return Vec::new();
+        }
+        Err(e) => {
+            warn!(
+                "chill_bevy_console: failed to read history file {:?}: {}",
+                path, e
+            );
+            return Vec::new();
+        }
     };
     let mut lines: Vec<String> = content
         .lines()
@@ -201,6 +215,11 @@ fn load_cmd_history(path: &Path, max_entries: usize) -> Vec<String> {
         let excess = lines.len() - max;
         lines.drain(0..excess);
     }
+    info!(
+        "chill_bevy_console: loaded {} history entries from {:?}",
+        lines.len(),
+        path
+    );
     lines
 }
 
@@ -219,11 +238,16 @@ fn persist_cmd_history(config: Res<ConsoleConfig>, mut state: ResMut<ConsoleStat
     if !content.is_empty() {
         content.push('\n');
     }
-    if let Err(e) = std::fs::write(path, content) {
-        warn!(
+    match std::fs::write(path, &content) {
+        Ok(()) => debug!(
+            "chill_bevy_console: wrote {} history entries to {:?}",
+            state.cmd_history.len(),
+            path
+        ),
+        Err(e) => warn!(
             "chill_bevy_console: failed to write history file {:?}: {}",
             path, e
-        );
+        ),
     }
 }
 
