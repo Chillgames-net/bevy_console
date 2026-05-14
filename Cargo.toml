@@ -26,20 +26,7 @@ persistent-history = []
 bevy = { version = "0.18", default-features = false }
 
 [dev-dependencies]
-bevy = { version = "0.18", features = [
-    "keyboard",
-    "mouse",
-    "bevy_asset",
-    "bevy_color",
-    "bevy_text",
-    "bevy_ui",
-    "bevy_render",
-    "bevy_window",
-    "bevy_winit",
-    "bevy_sprite",
-    "x11",
-    "default_font",
-] }
+bevy = "0.18"
 
 [[example]]
 name = "basic"
