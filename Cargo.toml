@@ -15,6 +15,9 @@ categories = ["game-development"]
 name = "chill_bevy_console"
 path = "src/lib.rs"
 
+[package.metadata.docs.rs]
+all-features = true
+
 [features]
 # Embeds assets/UbuntuMono-R.ttf into the binary and uses it as the default font.
 embedded-font = []
@@ -23,15 +26,38 @@ embedded-font = []
 persistent-history = []
 
 [dependencies]
-bevy = { version = "0.18", default-features = false }
-
-[dev-dependencies]
-bevy = { version = "0.18", features = [
+bevy = { version = "0.18", default-features = false, features = [
     "keyboard",
     "mouse",
     "bevy_asset",
     "bevy_color",
+    "bevy_log",
     "bevy_text",
     "bevy_ui",
     "bevy_render",
 ] }
+
+# Examples use DefaultPlugins, which needs bevy's default features (winit, etc.).
+[dev-dependencies]
+bevy = "0.18"
+
+[[example]]
+name = "basic"
+path = "examples/basic.rs"
+
+[[example]]
+name = "commands"
+path = "examples/commands.rs"
+
+[[example]]
+name = "custom_config"
+path = "examples/custom_config.rs"
+
+[[example]]
+name = "gameplay_blocking"
+path = "examples/gameplay_blocking.rs"
+
+[[example]]
+name = "persistent_history"
+path = "examples/persistent_history.rs"
+required-features = ["persistent-history"]

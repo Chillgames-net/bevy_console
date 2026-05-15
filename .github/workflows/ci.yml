@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+  # Docs are clean — keep strict so broken intra-doc links / missing docs fail CI.
+  RUSTDOCFLAGS: -D warnings
+
+jobs:
+  check:
+    name: ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: lib (minimal features — what ships to crates.io)
+            cmd: cargo build --lib --locked
+          - name: lib (all features)
+            cmd: cargo build --lib --all-features --locked
+          - name: examples (all features)
+            cmd: cargo build --examples --all-features --locked
+          - name: tests
+            cmd: cargo test --all-features --locked
+          - name: docs (mirrors docs.rs build)
+            cmd: cargo doc --no-deps --all-features --locked
+          # Surfaces lints but doesn't block on pre-existing warnings.
+          # Still catches deny-by-default lints (e.g. clippy::approx_constant).
+          - name: clippy
+            cmd: cargo clippy --all-targets --all-features --locked
+          - name: fmt
+            cmd: cargo fmt --all -- --check
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Bevy's winit + audio + udev backends (needed by examples using DefaultPlugins).
+      - name: Install Linux dependencies for Bevy
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - uses: Swatinem/rust-cache@v2
+
+      - run: ${{ matrix.cmd }}

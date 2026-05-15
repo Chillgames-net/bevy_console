@@ -1,3 +1,47 @@
+//! A configurable developer console plugin for [Bevy](https://bevyengine.org) games.
+//!
+//! Press `` ` `` (backtick) to toggle the console open and closed. Commands are
+//! plain Bevy systems that take [`CommandArgs`] and return a [`String`].
+//!
+//! # Quickstart
+//!
+//! ```no_run
+//! use bevy::prelude::*;
+//! use chill_bevy_console::{ChillConsole, CommandArgs, ConsoleAppExt, console_closed};
+//!
+//! fn main() {
+//!     App::new()
+//!         .add_plugins(DefaultPlugins)
+//!         .add_plugins(ChillConsole::default())
+//!         .add_console_command("say", "say <text> — echo text", say_cmd)
+//!         .add_systems(Update, gameplay_input.run_if(console_closed))
+//!         .run();
+//! }
+//!
+//! fn say_cmd(In(args): CommandArgs) -> String {
+//!     args.join(" ")
+//! }
+//!
+//! fn gameplay_input() { /* movement, jump, etc. */ }
+//! ```
+//!
+//! # Cargo features
+//!
+//! - `embedded-font` — embed `UbuntuMono-R.ttf` in the binary and use it as the
+//!   default font, so consumers don't need to ship a font asset.
+//! - `persistent-history` — load and save the console's full display history
+//!   (commands and their outputs) to a plain-text file between runs. The path
+//!   is configured via [`ConsoleConfig::history_file`].
+//!
+//! # Customization
+//!
+//! Every visual element is configurable via [`ConsoleConfig`], with built-in
+//! presets ([`ConsoleConfig::chillgames`], [`ConsoleConfig::matrix`],
+//! [`ConsoleConfig::source`]) as starting points. See the
+//! [`USAGE.md`](https://github.com/Chillgames-net/bevy_console/blob/main/USAGE.md)
+//! guide and the [`examples/`](https://github.com/Chillgames-net/bevy_console/tree/main/examples)
+//! directory for runnable demos.
+
 mod args;
 mod commands;
 mod input;
