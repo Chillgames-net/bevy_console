@@ -15,6 +15,9 @@ categories = ["game-development"]
 name = "chill_bevy_console"
 path = "src/lib.rs"
 
+[package.metadata.docs.rs]
+all-features = true
+
 [features]
 # Embeds assets/UbuntuMono-R.ttf into the binary and uses it as the default font.
 embedded-font = []
@@ -23,9 +26,6 @@ embedded-font = []
 persistent-history = []
 
 [dependencies]
-bevy = { version = "0.18", default-features = false }
-
-[dev-dependencies]
 bevy = "0.18"
 
 [[example]]
