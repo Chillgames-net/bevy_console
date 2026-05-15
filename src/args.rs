@@ -110,8 +110,8 @@ mod tests {
 
     #[test]
     fn parse_valid_float() {
-        let a = args("3.14");
-        assert!(matches!(a.parse::<f32>(0), Some(v) if (v - 3.14_f32).abs() < 1e-5));
+        let a = args("2.5");
+        assert!(matches!(a.parse::<f32>(0), Some(v) if (v - 2.5_f32).abs() < 1e-5));
     }
 
     #[test]
