@@ -10,6 +10,10 @@ pub(crate) struct ConsoleAssets {
     pub font: Handle<Font>,
 }
 
+fn console_text_font(font: &Handle<Font>, font_size: f32) -> TextFont {
+    TextFont::from_font_size(font_size).with_font(font.clone())
+}
+
 impl FromWorld for ConsoleAssets {
     fn from_world(world: &mut World) -> Self {
         // Clone the path so we can release the borrow before touching AssetServer.
@@ -101,21 +105,13 @@ pub(crate) fn spawn_console_ui(
                     row.spawn((
                         ConsoleInputMain,
                         Text::new(config.input_prefix.clone()),
-                        TextFont {
-                            font: assets.font.clone(),
-                            font_size: config.font_size,
-                            ..default()
-                        },
+                        console_text_font(&assets.font, config.font_size),
                         TextColor(config.input_text_color),
                     ));
                     row.spawn((
                         ConsoleInputGhost,
                         Text::new(""),
-                        TextFont {
-                            font: assets.font.clone(),
-                            font_size: config.font_size,
-                            ..default()
-                        },
+                        console_text_font(&assets.font, config.font_size),
                         TextColor(config.input_ghost_color),
                     ));
                 });
@@ -161,11 +157,7 @@ pub(crate) fn update_console_ui(
                 for line in state.history.iter() {
                     parent.spawn((
                         Text::new(line.clone()),
-                        TextFont {
-                            font: font.clone(),
-                            font_size: config.history_font_size,
-                            ..default()
-                        },
+                        console_text_font(&font, config.history_font_size),
                         TextColor(config.history_text_color),
                     ));
                 }
@@ -227,11 +219,7 @@ pub(crate) fn update_console_ui(
                         }),
                         BorderColor::all(config.dropdown_item_divider_color),
                         Text::new(label),
-                        TextFont {
-                            font: assets.font.clone(),
-                            font_size: config.dropdown_font_size,
-                            ..default()
-                        },
+                        console_text_font(&assets.font, config.dropdown_font_size),
                         TextColor(if selected {
                             config.dropdown_highlight_text_color
                         } else {

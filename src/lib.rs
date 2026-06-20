@@ -190,7 +190,7 @@ impl Plugin for ChillConsole {
                 env!("CARGO_MANIFEST_DIR"),
                 "/assets/UbuntuMono-R.ttf"
             ));
-            let font = Font::try_from_bytes(bytes.to_vec()).expect("embedded font is valid");
+            let font = Font::from_bytes(bytes.to_vec());
             let _ = app
                 .world_mut()
                 .resource_mut::<Assets<Font>>()

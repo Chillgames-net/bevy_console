@@ -26,7 +26,7 @@ embedded-font = []
 persistent-history = []
 
 [dependencies]
-bevy = { version = "0.18", default-features = false, features = [
+bevy = { version = "0.19", default-features = false, features = [
     "keyboard",
     "mouse",
     "bevy_asset",
@@ -39,7 +39,7 @@ bevy = { version = "0.18", default-features = false, features = [
 
 # Examples use DefaultPlugins, which needs bevy's default features (winit, etc.).
 [dev-dependencies]
-bevy = "0.18"
+bevy = "0.19"
 
 [[example]]
 name = "basic"
