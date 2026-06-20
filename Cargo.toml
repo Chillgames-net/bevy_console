@@ -1,6 +1,6 @@
 [package]
 name = "chill_bevy_console"
-version = "0.1.6"
+version = "0.2.0"
 edition = "2024"
 description = "A configurable developer console plugin for Bevy games"
 license = "MIT OR Apache-2.0"
@@ -26,7 +26,7 @@ embedded-font = []
 persistent-history = []
 
 [dependencies]
-bevy = { version = "0.18", default-features = false, features = [
+bevy = { version = "0.19", default-features = false, features = [
     "keyboard",
     "mouse",
     "bevy_asset",
@@ -35,11 +35,12 @@ bevy = { version = "0.18", default-features = false, features = [
     "bevy_text",
     "bevy_ui",
     "bevy_render",
+    "bevy_scene",
 ] }
 
 # Examples use DefaultPlugins, which needs bevy's default features (winit, etc.).
 [dev-dependencies]
-bevy = "0.18"
+bevy = "0.19"
 
 [[example]]
 name = "basic"

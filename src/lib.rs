@@ -62,6 +62,7 @@ pub use state::ConsoleState;
 #[cfg(feature = "embedded-font")]
 use bevy::asset::uuid_handle;
 use bevy::prelude::*;
+use bevy::scene::ScenePlugin;
 
 // ── Embedded font ──────────────────────────────────────────────────────────────
 
@@ -182,6 +183,10 @@ impl Default for ChillConsole {
 
 impl Plugin for ChillConsole {
     fn build(&self, app: &mut App) {
+        if !app.is_plugin_added::<ScenePlugin>() {
+            app.add_plugins(ScenePlugin);
+        }
+
         // Embed font bytes into Assets<Font> before ConsoleAssets is initialized,
         // so that FromWorld can resolve UBUNTU_MONO_FONT_HANDLE immediately.
         #[cfg(feature = "embedded-font")]
@@ -190,7 +195,7 @@ impl Plugin for ChillConsole {
                 env!("CARGO_MANIFEST_DIR"),
                 "/assets/UbuntuMono-R.ttf"
             ));
-            let font = Font::try_from_bytes(bytes.to_vec()).expect("embedded font is valid");
+            let font = Font::from_bytes(bytes.to_vec());
             let _ = app
                 .world_mut()
                 .resource_mut::<Assets<Font>>()

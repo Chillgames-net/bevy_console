@@ -79,7 +79,7 @@ font. If you'd rather not ship a font asset, enable the `embedded-font` cargo
 feature — `UbuntuMono-R.ttf` is compiled into the binary and used automatically.
 
 ```toml
-chill_bevy_console = { version = "0.1", features = ["embedded-font"] }
+chill_bevy_console = { version = "0.2", features = ["embedded-font"] }
 ```
 
 ## Persisting console history between runs
@@ -90,7 +90,7 @@ history changes — no extra Rust config needed. Up/Down recall is rebuilt from
 the loaded `> command` echo lines.
 
 ```toml
-chill_bevy_console = { version = "0.1", features = ["persistent-history"] }
+chill_bevy_console = { version = "0.2", features = ["persistent-history"] }
 ```
 
 By default the history is written to `console_history.txt` in the current

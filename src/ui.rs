@@ -2,12 +2,17 @@ use crate::config::ConsoleConfig;
 use crate::registry::ConsoleRegistry;
 use crate::state::ConsoleState;
 use bevy::prelude::*;
+use bevy::text::FontSourceTemplate;
 
 // ── Assets ────────────────────────────────────────────────────────────────────
 
 #[derive(Resource)]
 pub(crate) struct ConsoleAssets {
     pub font: Handle<Font>,
+}
+
+fn console_text_font(font: &Handle<Font>, font_size: f32) -> TextFont {
+    TextFont::from_font_size(font_size).with_font(font.clone())
 }
 
 impl FromWorld for ConsoleAssets {
@@ -27,21 +32,21 @@ impl FromWorld for ConsoleAssets {
 
 // ── Marker components ─────────────────────────────────────────────────────────
 
-#[derive(Component)]
+#[derive(Component, Default, Clone)]
 pub(crate) struct DevConsoleOverlay;
 
 /// The history panel. `ColumnReverse` keeps the newest line at the bottom;
 /// older lines overflow upward and get clipped.
-#[derive(Component)]
+#[derive(Component, Default, Clone)]
 pub(crate) struct ConsoleHistory;
 
-#[derive(Component)]
+#[derive(Component, Default, Clone)]
 pub(crate) struct ConsoleInputMain;
 
-#[derive(Component)]
+#[derive(Component, Default, Clone)]
 pub(crate) struct ConsoleInputGhost;
 
-#[derive(Component)]
+#[derive(Component, Default, Clone)]
 pub(crate) struct ConsoleDropdown;
 
 // ── Spawn ─────────────────────────────────────────────────────────────────────
@@ -51,88 +56,102 @@ pub(crate) fn spawn_console_ui(
     assets: &ConsoleAssets,
     config: &ConsoleConfig,
 ) {
-    commands
-        .spawn((
-            DevConsoleOverlay,
-            Node {
-                position_type: PositionType::Absolute,
-                top: Val::Px(0.0),
-                left: Val::Px(0.0),
-                width: Val::Percent(100.0),
-                flex_direction: FlexDirection::Column,
-                ..default()
-            },
-            ZIndex(200),
-        ))
-        .with_children(|parent| {
-            // ── History panel ─────────────────────────────────────────────────
-            parent.spawn((
-                ConsoleHistory,
+    let main_font = assets.font.clone();
+    let ghost_font = assets.font.clone();
+    let input_prefix = config.input_prefix.clone();
+    let font_size = config.font_size;
+    let history_height_vh = config.history_height_vh;
+    let history_padding = config.history_padding;
+    let history_bg = config.history_bg;
+    let input_padding_h = config.input_padding_h;
+    let input_padding_v = config.input_padding_v;
+    let input_border_width = config.input_border_width;
+    let input_bg = config.input_bg;
+    let input_border_color = config.input_border_color;
+    let input_text_color = config.input_text_color;
+    let input_ghost_color = config.input_ghost_color;
+    let dropdown_bg = config.dropdown_bg;
+    let dropdown_border_color = config.dropdown_border_color;
+
+    commands.spawn_scene(bsn! {
+        DevConsoleOverlay
+        Node {
+            position_type: PositionType::Absolute,
+            top: px(0),
+            left: px(0),
+            width: percent(100),
+            flex_direction: FlexDirection::Column,
+        }
+        ZIndex(200)
+        Children [
+            (
+                ConsoleHistory
                 Node {
                     flex_direction: FlexDirection::Column,
-                    height: Val::Vh(config.history_height_vh),
-                    max_height: Val::Vh(config.history_height_vh),
-                    width: Val::Percent(100.0),
+                    height: vh(history_height_vh),
+                    max_height: vh(history_height_vh),
+                    width: percent(100),
                     overflow: Overflow::scroll_y(),
-                    padding: UiRect::all(Val::Px(config.history_padding)),
-                    ..default()
-                },
-                BackgroundColor(config.history_bg),
-                ScrollPosition::default(),
-            ));
-
-            // ── Input bar ─────────────────────────────────────────────────────
-            parent
-                .spawn((
-                    Node {
-                        flex_direction: FlexDirection::Row,
-                        width: Val::Percent(100.0),
-                        padding: UiRect::axes(
-                            Val::Px(config.input_padding_h),
-                            Val::Px(config.input_padding_v),
-                        ),
-                        border: UiRect::top(Val::Px(config.input_border_width)),
-                        ..default()
-                    },
-                    BackgroundColor(config.input_bg),
-                    BorderColor::all(config.input_border_color),
-                ))
-                .with_children(|row| {
-                    row.spawn((
-                        ConsoleInputMain,
-                        Text::new(config.input_prefix.clone()),
+                    padding: px(history_padding),
+                }
+                BackgroundColor({history_bg})
+                ScrollPosition
+            ),
+            (
+                Node {
+                    flex_direction: FlexDirection::Row,
+                    width: percent(100),
+                    padding: {UiRect::axes(
+                        Val::Px(input_padding_h),
+                        Val::Px(input_padding_v),
+                    )},
+                    border: {UiRect::top(Val::Px(input_border_width))},
+                }
+                BackgroundColor({input_bg})
+                BorderColor {
+                    top: {input_border_color},
+                    right: {input_border_color},
+                    bottom: {input_border_color},
+                    left: {input_border_color},
+                }
+                Children [
+                    (
+                        ConsoleInputMain
+                        Text({input_prefix})
                         TextFont {
-                            font: assets.font.clone(),
-                            font_size: config.font_size,
-                            ..default()
-                        },
-                        TextColor(config.input_text_color),
-                    ));
-                    row.spawn((
-                        ConsoleInputGhost,
-                        Text::new(""),
+                            font: FontSourceTemplate::Handle({main_font}),
+                            font_size: px(font_size),
+                        }
+                        TextColor({input_text_color})
+                    ),
+                    (
+                        ConsoleInputGhost
+                        Text("")
                         TextFont {
-                            font: assets.font.clone(),
-                            font_size: config.font_size,
-                            ..default()
-                        },
-                        TextColor(config.input_ghost_color),
-                    ));
-                });
-
-            // ── Dropdown suggestions ──────────────────────────────────────────
-            parent.spawn((
-                ConsoleDropdown,
+                            font: FontSourceTemplate::Handle({ghost_font}),
+                            font_size: px(font_size),
+                        }
+                        TextColor({input_ghost_color})
+                    ),
+                ]
+            ),
+            (
+                ConsoleDropdown
                 Node {
                     flex_direction: FlexDirection::Column,
-                    width: Val::Percent(100.0),
-                    border: UiRect::bottom(Val::Px(1.0)),
-                    ..default()
-                },
-                BackgroundColor(config.dropdown_bg),
-                BorderColor::all(config.dropdown_border_color),
-            ));
-        });
+                    width: percent(100),
+                    border: {UiRect::bottom(Val::Px(1.0))},
+                }
+                BackgroundColor({dropdown_bg})
+                BorderColor {
+                    top: {dropdown_border_color},
+                    right: {dropdown_border_color},
+                    bottom: {dropdown_border_color},
+                    left: {dropdown_border_color},
+                }
+            ),
+        ]
+    });
 }
 
 // ── Render ────────────────────────────────────────────────────────────────────
@@ -161,11 +180,7 @@ pub(crate) fn update_console_ui(
                 for line in state.history.iter() {
                     parent.spawn((
                         Text::new(line.clone()),
-                        TextFont {
-                            font: font.clone(),
-                            font_size: config.history_font_size,
-                            ..default()
-                        },
+                        console_text_font(&font, config.history_font_size),
                         TextColor(config.history_text_color),
                     ));
                 }
@@ -227,11 +242,7 @@ pub(crate) fn update_console_ui(
                         }),
                         BorderColor::all(config.dropdown_item_divider_color),
                         Text::new(label),
-                        TextFont {
-                            font: assets.font.clone(),
-                            font_size: config.dropdown_font_size,
-                            ..default()
-                        },
+                        console_text_font(&assets.font, config.dropdown_font_size),
                         TextColor(if selected {
                             config.dropdown_highlight_text_color
                         } else {
