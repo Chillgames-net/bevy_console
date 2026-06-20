@@ -35,6 +35,7 @@ bevy = { version = "0.19", default-features = false, features = [
     "bevy_text",
     "bevy_ui",
     "bevy_render",
+    "bevy_scene",
 ] }
 
 # Examples use DefaultPlugins, which needs bevy's default features (winit, etc.).
