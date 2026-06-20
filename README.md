@@ -10,13 +10,14 @@ Press `` ` `` (backtick) to toggle the console open and closed.
 
 | `chill_bevy_console` | `bevy` |
 |---------------------------|--------|
+| `0.2`                     | `0.19` |
 | `0.1`                     | `0.18` |
 
 ## Install
 
 ```toml
 [dependencies]
-chill_bevy_console = "0.1"
+chill_bevy_console = "0.2"
 ```
 
 Optional features:
