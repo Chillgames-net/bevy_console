@@ -1,6 +1,7 @@
-//! Persist console history between runs. Requires the `persistent-history` feature.
+//! Persist submitted-command recall between runs. Requires the
+//! `persistent-history` feature.
 //!
-//! Run a command, close the app, reopen — the history is still there.
+//! Run a command, close the app, reopen — it is available through Up/Down recall.
 //!
 //! Run with: `cargo run --example persistent_history --features persistent-history`
 
@@ -17,7 +18,7 @@ fn main() {
                 ..default()
             },
         })
-        .add_console_command("say", "say <text> — echo text", say_cmd)
+        .add_console_command("say", "say <text> - echo text", say_cmd)
         .add_systems(Startup, setup)
         .run();
 }
