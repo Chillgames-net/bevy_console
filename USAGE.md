@@ -89,7 +89,7 @@ or argument candidate; Up/Down selects candidates or command history.
 ## Resource properties
 
 Enable the opt-in `resource-properties` feature to expose selected fields on a
-Bevy `Resource` directly through the `get` and `res` commands:
+Bevy `Resource` directly through the `res` command:
 
 ```toml
 chill_bevy_console = { version = "0.3", features = ["resource-properties"] }
@@ -124,9 +124,10 @@ This creates `debug.draw_colliders`, `debug.build_label`, and `debug.max_fps`.
 `res set debug.draw_colliders true` mutates `DebugSettings` itself, so ordinary
 Bevy change detection observes it. `readonly` omits the setter.
 
-`res` groups resource mutations: `res set <name> <value>`, `res add <name>
-<amount>`, `res sub <name> <amount>`, and `res toggle <name>`. `add` and `sub`
-work with numeric properties; integer overflow is reported as a console error.
+`res` groups resource operations: `res get <name>`, `res set <name> <value>`,
+`res add <name> <amount>`, `res sub <name> <amount>`, and `res toggle <name>`.
+`add` and `sub` work with numeric properties; integer overflow is reported as a
+console error.
 
 Fields must be explicitly marked with `#[console]`. Built-in property values
 support booleans, all primitive integers and floats, and `String`; implement
@@ -302,7 +303,7 @@ fn lock_console_for_release(mut state: ResMut<ConsoleState>) {
 | `clear`   | Clear the console output        |
 | `alias` | Manage runtime aliases |
 | `bind` | Manage runtime key bindings |
-| `get` / `res` | Inspect and change resource properties (requires `resource-properties`) |
+| `res` | Inspect and change resource properties (requires `resource-properties`) |
 
 `alias` and `bind` use `list`, `get`, `set`, and `remove` operations:
 

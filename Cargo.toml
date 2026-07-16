@@ -40,8 +40,8 @@ embedded-font = []
 # Loads and saves command recall history between runs, controlled by
 # `ConsoleConfig::history_file`.
 persistent-history = []
-# Exposes opt-in fields on Bevy resources through the built-in get/res
-# console commands. The custom derive is re-exported when this is enabled.
+# Exposes opt-in fields on Bevy resources through the built-in res console
+# command. The custom derive is re-exported when this is enabled.
 resource-properties = ["dep:chill_bevy_console_derive"]
 
 [dependencies]

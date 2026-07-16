@@ -1,7 +1,7 @@
 //! Expose selected fields on a Bevy resource in the developer console.
 //!
 //! Try:
-//!   get render.wireframes
+//!   res get render.wireframes
 //!   res set render.max_fps 144
 //!   res add render.max_fps 24
 //!   res sub render.max_fps 30

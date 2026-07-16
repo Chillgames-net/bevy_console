@@ -3,7 +3,7 @@ use quote::{format_ident, quote};
 use syn::{Data, DeriveInput, Error, Fields, LitStr, Result, parse_macro_input, parse_quote};
 
 /// Exposes explicitly opted-in named fields on a Bevy resource to
-/// `chill_bevy_console`'s `get` and `res` commands.
+/// `chill_bevy_console`'s `res` command.
 ///
 /// Use `#[console_resource(prefix = "...")]` on the resource and
 /// `#[console(...)]` on each field to expose. Field options are `name`, `help`,

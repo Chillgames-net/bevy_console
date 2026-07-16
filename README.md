@@ -27,7 +27,7 @@ Optional features:
 - `persistent-history` — save and restore command recall history between
   runs.
 - `resource-properties` — expose selected fields on Bevy resources through
-  `get` and `res` with `#[derive(ConsoleResource)]`.
+  `res` with `#[derive(ConsoleResource)]`.
 
 ## Usage
 
@@ -61,7 +61,7 @@ Import `ConsoleAppExt` to add these methods to Bevy's `App`. Each returns
 | `add_console_command(name, usage, system)` | Register a command whose system receives `CommandArgs` and returns a `String` or `ConsoleResult`. |
 | `add_console_command_spec(spec, system)` | Register a `CommandSpec` with aliases, argument metadata, and structured help; its system returns a `String` or `ConsoleResult`. |
 | `add_console_completer(command, argument_index, completer)` | Attach a dynamic argument completer to a previously registered command. |
-| `add_console_resource::<R>()` | Register `R`'s `ConsoleResource` properties for the built-in `get` and `res` commands. Requires the `resource-properties` feature. |
+| `add_console_resource::<R>()` | Register `R`'s `ConsoleResource` properties for the built-in `res` command. Requires the `resource-properties` feature. |
 
 See [USAGE.md](USAGE.md) for adding commands, custom config, persisting history, blocking gameplay input, and built-in commands. Runnable examples live in [`examples/`](examples) — try `cargo run --example basic`.
 

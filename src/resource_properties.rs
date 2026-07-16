@@ -221,22 +221,13 @@ pub(crate) fn plugin(app: &mut App) {
     app.init_resource::<ConsoleResources>();
     {
         let mut registry = app.world_mut().resource_mut::<ConsoleRegistry>();
-        if enabled.contains(&BuiltinCommand::Get) {
-            registry.register_exclusive_spec(
-                CommandSpec::new("get")
-                    .help("get <property> - show a resource property")
-                    .summary("Show a resource property")
-                    .args([ArgumentSpec::new("property").help("Property name")]),
-                get_property,
-            );
-        }
         if enabled.contains(&BuiltinCommand::Res) {
             registry.register_exclusive_spec(
                 CommandSpec::new("res")
                     .help(
-                        "res <set|add|sub|toggle> <property> [value] - modify a resource property",
+                        "res <get|set|add|sub|toggle> <property> [value] - inspect or modify a resource property",
                     )
-                    .summary("Modify a resource property")
+                    .summary("Inspect or modify a resource property")
                     .args([
                         ArgumentSpec::new("operation"),
                         ArgumentSpec::new("property").help("Property name"),
@@ -245,9 +236,6 @@ pub(crate) fn plugin(app: &mut App) {
                 res_property,
             );
         }
-    }
-    if enabled.contains(&BuiltinCommand::Get) {
-        app.add_console_completer("get", 0, complete_property_names);
     }
     if enabled.contains(&BuiltinCommand::Res) {
         app.add_console_completer("res", 0, complete_res_operations)
@@ -300,10 +288,7 @@ fn adjust_value(
     adjuster(world, amount, subtract)
 }
 
-fn get_property(world: &mut World, args: Args) -> ConsoleResult {
-    let Some(name) = args.get(0) else {
-        return ConsoleResult::error("Usage: get <property>");
-    };
+fn show_property(world: &mut World, name: &str) -> ConsoleResult {
     match get_value(world, name) {
         Ok(value) => {
             let help = property(world, name)
@@ -319,12 +304,13 @@ fn get_property(world: &mut World, args: Args) -> ConsoleResult {
 
 fn res_property(world: &mut World, args: Args) -> ConsoleResult {
     let Some(operation) = args.get(0) else {
-        return ConsoleResult::error("Usage: res <set|add|sub|toggle> <property> [value]");
+        return ConsoleResult::error("Usage: res <get|set|add|sub|toggle> <property> [value]");
     };
     let Some(name) = args.get(1) else {
-        return ConsoleResult::error("Usage: res <set|add|sub|toggle> <property> [value]");
+        return ConsoleResult::error("Usage: res <get|set|add|sub|toggle> <property> [value]");
     };
     match operation.to_ascii_lowercase().as_str() {
+        "get" => show_property(world, name),
         "set" => {
             let Some(value) = args.get(2) else {
                 return ConsoleResult::error("Usage: res set <property> <value>");
@@ -344,7 +330,7 @@ fn res_property(world: &mut World, args: Args) -> ConsoleResult {
             }
         }
         "toggle" => toggle_property(world, name),
-        _ => ConsoleResult::error("Usage: res <set|add|sub|toggle> <property> [value]"),
+        _ => ConsoleResult::error("Usage: res <get|set|add|sub|toggle> <property> [value]"),
     }
 }
 
@@ -369,13 +355,6 @@ fn toggle_property(world: &mut World, name: &str) -> ConsoleResult {
     }
 }
 
-fn complete_property_names(
-    In(request): In<CompletionRequest>,
-    properties: Res<ConsoleResources>,
-) -> Vec<CompletionItem> {
-    property_items(&request, &properties, |_| true)
-}
-
 fn complete_res_property_names(
     In(request): In<CompletionRequest>,
     properties: Res<ConsoleResources>,
@@ -395,6 +374,7 @@ fn complete_res_property_names(
 fn complete_res_operations(In(request): In<CompletionRequest>) -> Vec<CompletionItem> {
     [
         ("add", "Adds to a numeric resource"),
+        ("get", "Shows a resource value"),
         ("set", "Sets a resource value"),
         ("sub", "Subtracts from a numeric resource"),
         ("toggle", "Toggles a boolean resource"),
@@ -482,6 +462,21 @@ mod tests {
     }
 
     #[test]
+    fn res_builtin_enables_property_commands() {
+        let mut app = App::new();
+        app.insert_resource(ConsoleConfig {
+            builtin_commands: [BuiltinCommand::Res].into_iter().collect(),
+            ..default()
+        })
+        .init_resource::<ConsoleRegistry>()
+        .add_plugins(super::plugin);
+
+        let registry = app.world().resource::<ConsoleRegistry>();
+        assert!(registry.get("get").is_none());
+        assert!(registry.get("res").is_some());
+    }
+
+    #[test]
     fn properties_mutate_the_registered_resource() {
         let mut app = App::new();
         app.insert_resource(ConsoleConfig::default())
@@ -499,9 +494,24 @@ mod tests {
             })
             .add_console_resource::<DebugSettings>();
         let registry = app.world().resource::<ConsoleRegistry>();
+        assert!(registry.get("get").is_none());
         assert!(registry.get("res").is_some());
         assert!(registry.get("set").is_none());
         assert!(registry.get("toggle").is_none());
+
+        app.world_mut()
+            .resource_mut::<ConsoleCommandQueue>()
+            .push(ConsoleRequest::new("res get debug.draw_colliders"));
+        crate::input::execute_pending_commands(app.world_mut());
+        assert_eq!(
+            app.world()
+                .resource::<ConsoleBuffer>()
+                .lines()
+                .back()
+                .unwrap()
+                .text,
+            "debug.draw_colliders = false - Draw collider shapes"
+        );
 
         app.world_mut()
             .resource_mut::<ConsoleCommandQueue>()

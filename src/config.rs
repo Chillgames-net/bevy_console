@@ -14,8 +14,6 @@ pub enum BuiltinCommand {
     Alias,
     Bind,
     #[cfg(feature = "resource-properties")]
-    Get,
-    #[cfg(feature = "resource-properties")]
     Res,
 }
 
@@ -27,8 +25,6 @@ impl BuiltinCommand {
             Self::Help,
             Self::Alias,
             Self::Bind,
-            #[cfg(feature = "resource-properties")]
-            Self::Get,
             #[cfg(feature = "resource-properties")]
             Self::Res,
         ]
