@@ -1,2 +1,6 @@
 /target
 .DS_Store
+
+.idea
+/derive/target
+/tests/renamed_dependency/Cargo.lock
