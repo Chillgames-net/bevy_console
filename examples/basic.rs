@@ -9,7 +9,7 @@ fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
         .add_plugins(ChillConsole::default())
-        .add_console_command("say", "say <text> — echo text", say_cmd)
+        .add_console_command("say", "say <text> - echo text", say_cmd)
         .add_systems(Startup, setup)
         .run();
 }
