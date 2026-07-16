@@ -1,14 +1,14 @@
 use crate::config::{BuiltinCommand, ConsoleConfig};
 use crate::state::ConsoleState;
-use crate::ui::{spawn_console_ui, ConsoleAssets, ConsoleInput, DevConsoleOverlay};
+use crate::ui::{ConsoleAssets, ConsoleInput, DevConsoleOverlay, spawn_console_ui};
 use crate::{
     Args, CommandExecutor, ConsoleAliases, ConsoleBinds, ConsoleBuffer, ConsoleCommandExecuted,
     ConsoleCommandQueue, ConsoleLevel, ConsoleLineMessage, ConsoleLineSource, ConsoleRegistry,
     ConsoleRequest,
 };
+use bevy::input::ButtonState;
 use bevy::input::keyboard::{Key, KeyboardInput};
 use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
-use bevy::input::ButtonState;
 use bevy::prelude::*;
 use bevy::text::{EditableText, TextEdit};
 use bevy::ui::{ComputedNode, ScrollPosition};
@@ -424,12 +424,7 @@ pub(crate) fn execute_pending_commands(world: &mut World) {
         return;
     }
     let Some(name) = parsed.command() else { return };
-    let args = Args(
-        parsed.tokens[1..]
-            .iter()
-            .map(|token| token.value.clone())
-            .collect(),
-    );
+    let args = Args::from_parsed(&parsed);
 
     let command = {
         let registry = world.resource::<ConsoleRegistry>();
@@ -534,8 +529,8 @@ mod tests {
         ConsoleCommandQueue, ConsoleConfig, ConsoleKeyBinding, ConsoleKeyModifiers, ConsoleLevel,
         ConsoleRequest, ConsoleResult, ConsoleState,
     };
-    use bevy::input::keyboard::{Key, KeyboardInput};
     use bevy::input::ButtonState;
+    use bevy::input::keyboard::{Key, KeyboardInput};
     use bevy::prelude::*;
     use bevy::text::EditableText;
 
@@ -553,10 +548,12 @@ mod tests {
             .insert_resource(ConsoleState::default())
             .insert_resource(ConsoleBuffer::default())
             .init_resource::<ConsoleAliases>()
+            .init_resource::<ConsoleBinds>()
             .init_resource::<ConsoleCommandQueue>()
             .add_message::<crate::ConsoleCommandExecuted>()
             .add_console_command("echo", "echo <text>", echo)
-            .add_console_command("status", "status", structured);
+            .add_console_command("status", "status", structured)
+            .add_plugins(crate::commands::plugin);
         app
     }
 
@@ -596,6 +593,46 @@ mod tests {
         let lines = app.world().resource::<ConsoleBuffer>().lines();
         assert_eq!(lines[0].text, "> echo hello world");
         assert_eq!(lines[1].text, "hello|world");
+    }
+
+    #[test]
+    fn alias_and_bind_set_preserve_quoted_command_arguments() {
+        let mut app = command_test_app();
+
+        app.world_mut()
+            .resource_mut::<ConsoleCommandQueue>()
+            .push(ConsoleRequest::new(
+                r#"alias set greeting echo "hello world""#,
+            ));
+        execute_pending_commands(app.world_mut());
+        assert_eq!(
+            app.world().resource::<ConsoleAliases>().get("greeting"),
+            Some(r#"echo "hello world""#)
+        );
+
+        app.world_mut()
+            .resource_mut::<ConsoleCommandQueue>()
+            .push(ConsoleRequest::new("greeting"));
+        execute_pending_commands(app.world_mut());
+        execute_pending_commands(app.world_mut());
+        assert_eq!(
+            app.world()
+                .resource::<ConsoleBuffer>()
+                .lines()
+                .back()
+                .unwrap()
+                .text,
+            "hello world"
+        );
+
+        app.world_mut()
+            .resource_mut::<ConsoleCommandQueue>()
+            .push(ConsoleRequest::new(r#"bind set F1 echo "hello world""#));
+        execute_pending_commands(app.world_mut());
+        assert_eq!(
+            app.world().resource::<ConsoleBinds>().get(KeyCode::F1),
+            Some(r#"echo "hello world""#)
+        );
     }
 
     #[test]

@@ -1,11 +1,10 @@
 use crate::{
-    completion::runtime_command_completions, ArgumentSpec, BuiltinCommand, CommandArgs,
-    CommandSpec, CompletionItem, CompletionRequest, ConsoleAliases, ConsoleAppExt, ConsoleBinds,
-    ConsoleBuffer, ConsoleConfig, ConsoleKeyBinding, ConsoleKeyModifiers, ConsoleRegistry,
-    ConsoleResult,
+    ArgumentSpec, BuiltinCommand, CommandArgs, CommandSpec, CompletionItem, CompletionRequest,
+    ConsoleAliases, ConsoleAppExt, ConsoleBinds, ConsoleBuffer, ConsoleConfig, ConsoleKeyBinding,
+    ConsoleKeyModifiers, ConsoleRegistry, ConsoleResult, completion::runtime_command_completions,
 };
 use bevy::prelude::*;
-use bevy::reflect::{enums::DynamicEnum, FromReflect, Typed};
+use bevy::reflect::{FromReflect, Typed, enums::DynamicEnum};
 
 pub fn plugin(app: &mut App) {
     let enabled = app
@@ -142,7 +141,7 @@ fn alias_cmd(
                     name
                 ));
             }
-            let expansion = args.rest(2);
+            let expansion = args.raw_rest(2);
             aliases.set(name, &expansion);
             ConsoleResult::info(format!("{name} = {expansion}"))
         }
@@ -258,7 +257,7 @@ fn bind_cmd(In(args): CommandArgs, mut binds: ResMut<ConsoleBinds>) -> ConsoleRe
             let Some(binding) = parse_key_binding(name) else {
                 return ConsoleResult::error(format!("Unknown key: {name}"));
             };
-            let command = args.rest(2);
+            let command = args.raw_rest(2);
             binds.set_binding(binding, &command);
             ConsoleResult::info(format!("{binding} = {command}"))
         }
@@ -437,11 +436,12 @@ mod tests {
             .push(ConsoleRequest::new("alias set clear echo ignored"));
         crate::input::execute_pending_commands(app.world_mut());
 
-        assert!(app
-            .world()
-            .resource::<ConsoleAliases>()
-            .get("clear")
-            .is_none());
+        assert!(
+            app.world()
+                .resource::<ConsoleAliases>()
+                .get("clear")
+                .is_none()
+        );
         assert_eq!(
             app.world().resource::<ConsoleBuffer>().lines()[1].text,
             "Cannot create alias `clear`: it is already a registered command"
@@ -494,11 +494,12 @@ mod tests {
             .resource_mut::<ConsoleCommandQueue>()
             .push(ConsoleRequest::new("alias remove quicksave"));
         crate::input::execute_pending_commands(app.world_mut());
-        assert!(app
-            .world()
-            .resource::<ConsoleAliases>()
-            .get("quicksave")
-            .is_none());
+        assert!(
+            app.world()
+                .resource::<ConsoleAliases>()
+                .get("quicksave")
+                .is_none()
+        );
     }
 
     #[test]
@@ -586,11 +587,12 @@ mod tests {
             .resource_mut::<ConsoleCommandQueue>()
             .push(ConsoleRequest::new("bind remove F1"));
         crate::input::execute_pending_commands(app.world_mut());
-        assert!(app
-            .world()
-            .resource::<ConsoleBinds>()
-            .get(KeyCode::F1)
-            .is_none());
+        assert!(
+            app.world()
+                .resource::<ConsoleBinds>()
+                .get(KeyCode::F1)
+                .is_none()
+        );
     }
 
     #[test]

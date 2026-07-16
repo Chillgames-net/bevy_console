@@ -1,3 +1,7 @@
+use std::ops::Range;
+
+use crate::ParsedInput;
+
 /// Parsed arguments passed to a console command system.
 ///
 /// Dereferences to `[String]`, so slice methods (`len`, `is_empty`, `iter`, `join`, …)
@@ -13,7 +17,11 @@
 ///     format!("Hello, {name}! (×{count}) {tail}")
 /// }
 /// ```
-pub struct Args(pub(crate) Vec<String>);
+pub struct Args {
+    values: Vec<String>,
+    source: Option<String>,
+    ranges: Vec<Range<usize>>,
+}
 
 impl Args {
     /// Returns the argument at `index` as a `&str`, or `None` if out of bounds.
@@ -25,7 +33,7 @@ impl Args {
     /// assert_eq!(args.get(5), None);
     /// ```
     pub fn get(&self, index: usize) -> Option<&str> {
-        self.0.get(index).map(String::as_str)
+        self.values.get(index).map(String::as_str)
     }
 
     /// Parses the argument at `index` as `T`.
@@ -40,7 +48,7 @@ impl Args {
     /// assert_eq!(args.parse::<i32>(2), None); // out of bounds
     /// ```
     pub fn parse<T: std::str::FromStr>(&self, index: usize) -> Option<T> {
-        self.0.get(index)?.parse().ok()
+        self.values.get(index)?.parse().ok()
     }
 
     /// Joins all arguments from `start` onwards with spaces.
@@ -54,29 +62,57 @@ impl Args {
     /// assert_eq!(args.rest(99), "");
     /// ```
     pub fn rest(&self, start: usize) -> String {
-        self.0[start.min(self.0.len())..].join(" ")
+        self.values[start.min(self.values.len())..].join(" ")
+    }
+
+    /// Returns the original input text from `start` onwards when available.
+    ///
+    /// Unlike [`Self::rest`], this preserves quotes, escapes, and whitespace.
+    pub(crate) fn raw_rest(&self, start: usize) -> String {
+        self.ranges
+            .get(start)
+            .and_then(|range| {
+                self.source
+                    .as_ref()
+                    .map(|source| source[range.start..].to_string())
+            })
+            .unwrap_or_else(|| self.rest(start))
+    }
+
+    pub(crate) fn from_parsed(parsed: &ParsedInput) -> Self {
+        let tokens = &parsed.tokens[1..];
+        Self {
+            values: tokens.iter().map(|token| token.value.clone()).collect(),
+            source: Some(parsed.source.clone()),
+            ranges: tokens.iter().map(|token| token.range.clone()).collect(),
+        }
     }
 }
 
 impl From<Vec<String>> for Args {
     fn from(v: Vec<String>) -> Self {
-        Args(v)
+        Self {
+            values: v,
+            source: None,
+            ranges: Vec::new(),
+        }
     }
 }
 
 impl std::ops::Deref for Args {
     type Target = [String];
     fn deref(&self) -> &Self::Target {
-        &self.0
+        &self.values
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::Args;
+    use crate::ParsedInput;
 
     fn args(s: &str) -> Args {
-        Args(s.split_whitespace().map(str::to_string).collect())
+        Args::from(s.split_whitespace().map(str::to_string).collect::<Vec<_>>())
     }
 
     // ── get ──────────────────────────────────────────────────────────────────
@@ -96,7 +132,7 @@ mod tests {
 
     #[test]
     fn get_on_empty_args_returns_none() {
-        let a = Args(vec![]);
+        let a = Args::from(Vec::new());
         assert_eq!(a.get(0), None);
     }
 
@@ -148,7 +184,7 @@ mod tests {
 
     #[test]
     fn rest_on_empty_args_returns_empty() {
-        let a = Args(vec![]);
+        let a = Args::from(Vec::new());
         assert_eq!(a.rest(0), "");
     }
 
@@ -156,7 +192,7 @@ mod tests {
 
     #[test]
     fn len_and_is_empty() {
-        let empty = Args(vec![]);
+        let empty = Args::from(Vec::new());
         let one = args("x");
         assert!(empty.is_empty());
         assert_eq!(empty.len(), 0);
@@ -175,5 +211,13 @@ mod tests {
     fn join_via_deref() {
         let a = args("hello world");
         assert_eq!(a.join("-"), "hello-world");
+    }
+
+    #[test]
+    fn raw_rest_preserves_quotes_and_escapes() {
+        let args = Args::from_parsed(&ParsedInput::parse(
+            r#"alias set greeting echo "hello world" two\ words"#,
+        ));
+        assert_eq!(args.raw_rest(2), r#"echo "hello world" two\ words"#);
     }
 }
