@@ -1,6 +1,8 @@
 //! Optional command-history persistence.
 
 use crate::{ConsoleBuffer, ConsoleConfig, ConsoleState};
+#[cfg(not(target_arch = "wasm32"))]
+use crate::{ConsoleLevel, ConsoleLineSource, ParsedInput};
 use bevy::prelude::*;
 #[cfg(not(target_arch = "wasm32"))]
 use std::path::{Path, PathBuf};
@@ -15,14 +17,31 @@ pub(crate) fn load_initial_data(config: &ConsoleConfig) -> (ConsoleState, Consol
     let mut state = ConsoleState::default();
     #[cfg(target_arch = "wasm32")]
     let state = ConsoleState::default();
+    #[cfg(not(target_arch = "wasm32"))]
+    let mut buffer = ConsoleBuffer::new(config.max_history_lines);
+    #[cfg(target_arch = "wasm32")]
+    let buffer = ConsoleBuffer::new(config.max_history_lines);
 
     #[cfg(not(target_arch = "wasm32"))]
     if let Some(path) = &config.history_file {
         match std::fs::read_to_string(path) {
-            Ok(content) => state.restore_command_history(
-                content.lines().map(str::to_owned).collect(),
-                config.max_command_history,
-            ),
+            Ok(content) => {
+                state.restore_command_history(
+                    content.lines().map(str::to_owned).collect(),
+                    config.max_command_history,
+                );
+                for command in state.command_history() {
+                    let name = ParsedInput::parse(command)
+                        .command()
+                        .unwrap_or_default()
+                        .to_string();
+                    buffer.push(
+                        ConsoleLevel::Info,
+                        ConsoleLineSource::Command { name },
+                        format!("> {command}"),
+                    );
+                }
+            }
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
             Err(error) => warn!(
                 "chill_bevy_console: failed to read history file {:?}: {}",
@@ -31,7 +50,7 @@ pub(crate) fn load_initial_data(config: &ConsoleConfig) -> (ConsoleState, Consol
         }
     }
 
-    (state, ConsoleBuffer::new(config.max_history_lines))
+    (state, buffer)
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -90,7 +109,7 @@ fn write_history(path: &Path, commands: &[String]) -> std::io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::{load_initial_data, write_history};
-    use crate::ConsoleConfig;
+    use crate::{ConsoleConfig, ConsoleLineSource};
     use std::time::{SystemTime, UNIX_EPOCH};
 
     #[test]
@@ -113,7 +132,59 @@ mod tests {
         let (state, buffer) = load_initial_data(&config);
 
         assert_eq!(state.command_history(), ["map forest", "set debug true"]);
-        assert!(buffer.lines().is_empty());
+        assert_eq!(
+            buffer
+                .lines()
+                .iter()
+                .map(|line| line.text.as_str())
+                .collect::<Vec<_>>(),
+            ["> map forest", "> set debug true"]
+        );
+        assert_eq!(
+            buffer.lines()[0].source,
+            ConsoleLineSource::Command { name: "map".into() }
+        );
+        assert_eq!(
+            buffer.lines()[1].source,
+            ConsoleLineSource::Command { name: "set".into() }
+        );
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn restored_visual_history_respects_both_limits() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!(
+            "chill_bevy_console_history_limits_{}_{}.txt",
+            std::process::id(),
+            unique
+        ));
+        write_history(
+            &path,
+            &["one".into(), "two".into(), "three".into(), "four".into()],
+        )
+        .unwrap();
+        let config = ConsoleConfig {
+            max_command_history: 3,
+            max_history_lines: 2,
+            history_file: Some(path.clone()),
+            ..ConsoleConfig::default()
+        };
+
+        let (state, buffer) = load_initial_data(&config);
+
+        assert_eq!(state.command_history(), ["two", "three", "four"]);
+        assert_eq!(
+            buffer
+                .lines()
+                .iter()
+                .map(|line| line.text.as_str())
+                .collect::<Vec<_>>(),
+            ["> three", "> four"]
+        );
         std::fs::remove_file(path).unwrap();
     }
 }

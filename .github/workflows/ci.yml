@@ -33,3 +33,18 @@ jobs:
       - run: cargo test --workspace --no-default-features --lib --locked
       - run: cargo test --workspace --doc --all-features --locked
       - run: cargo doc --workspace --no-deps --all-features --locked
+
+  msrv:
+    name: MSRV (Rust 1.95)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Bevy system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev
+      - uses: dtolnay/rust-toolchain@1.95.0
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --workspace --all-features --lib --locked
+      - run: cargo test --workspace --no-default-features --lib --locked

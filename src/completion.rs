@@ -30,7 +30,7 @@ pub(crate) fn refresh_completions(world: &mut World) {
             })
     });
     let parsed = ParsedInput::parse_at(input, cursor);
-    let mut items = match parsed.active_argument_index() {
+    let items = match parsed.active_argument_index() {
         None => command_completions(
             world.resource::<ConsoleRegistry>(),
             world.resource::<ConsoleAliases>(),
@@ -40,7 +40,11 @@ pub(crate) fn refresh_completions(world: &mut World) {
     };
     let max_suggestions = world.resource::<ConsoleConfig>().max_suggestions;
     let overflow = items.len().saturating_sub(max_suggestions);
-    items.truncate(max_suggestions);
+    let items = if max_suggestions == 0 {
+        Vec::new()
+    } else {
+        items
+    };
     world
         .resource_mut::<ConsoleState>()
         .set_completions(items, overflow);
@@ -385,7 +389,7 @@ mod tests {
     }
 
     #[test]
-    fn tracks_completions_omitted_by_suggestion_limit() {
+    fn retains_completions_beyond_the_first_suggestion_page() {
         let mut app = App::new();
         app.insert_resource(ConsoleState::default())
             .insert_resource(ConsoleConfig {
@@ -405,6 +409,28 @@ mod tests {
         let state = app.world().resource::<ConsoleState>();
         assert_eq!(state.completion_items[0].label, "alpha");
         assert_eq!(state.completion_items[1].label, "beta");
+        assert_eq!(state.completion_items[2].label, "gamma");
+        assert_eq!(state.completion_overflow, 1);
+    }
+
+    #[test]
+    fn zero_suggestion_limit_disables_completions() {
+        let mut app = App::new();
+        app.insert_resource(ConsoleState::default())
+            .insert_resource(ConsoleConfig {
+                max_suggestions: 0,
+                ..default()
+            })
+            .init_resource::<ConsoleAliases>()
+            .add_console_command("alpha", "alpha", noop);
+        app.world_mut()
+            .resource_mut::<ConsoleState>()
+            .mark_input_changed();
+
+        refresh_completions(app.world_mut());
+
+        let state = app.world().resource::<ConsoleState>();
+        assert!(state.completion_items.is_empty());
         assert_eq!(state.completion_overflow, 1);
     }
 

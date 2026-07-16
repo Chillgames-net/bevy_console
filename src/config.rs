@@ -136,7 +136,7 @@ pub struct ConsoleConfig {
     pub max_history_lines: usize,
     /// Maximum submitted commands kept for Up/Down recall.
     pub max_command_history: usize,
-    /// Maximum completion rows presented at once.
+    /// Maximum completion rows presented on each suggestion page.
     pub max_suggestions: usize,
     /// Z-index applied to the console overlay.
     pub z_index: i32,

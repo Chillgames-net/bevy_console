@@ -293,9 +293,11 @@ pub(crate) fn update_console_ui(
             }
         }
 
-        if !state.completion_items.is_empty() || state.completion_overflow > 0 {
+        let page = state.completion_page_range(config.max_suggestions);
+        if !page.is_empty() {
             commands.entity(dropdown).with_children(|parent| {
-                for (i, item) in state.completion_items.iter().enumerate() {
+                for i in page.clone() {
+                    let item = &state.completion_items[i];
                     let selected = i == state.match_index;
                     let label = if item.detail.is_empty() {
                         item.label.clone()
@@ -328,7 +330,7 @@ pub(crate) fn update_console_ui(
                     ));
                 }
 
-                if state.completion_overflow > 0 {
+                if state.completion_items.len() > config.max_suggestions {
                     parent.spawn((
                         Node {
                             padding: UiRect::axes(
@@ -340,7 +342,12 @@ pub(crate) fn update_console_ui(
                             ..default()
                         },
                         BorderColor::all(config.dropdown_item_divider_color),
-                        Text::new(format!("+ {} more", state.completion_overflow)),
+                        Text::new(format!(
+                            "{}-{} of {}",
+                            page.start + 1,
+                            page.end,
+                            state.completion_items.len()
+                        )),
                         console_text_font(&assets.font, config.dropdown_font_size),
                         TextColor(config.dropdown_text_color),
                     ));

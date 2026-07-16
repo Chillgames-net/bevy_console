@@ -57,7 +57,7 @@ pub(crate) fn handle_toggle_key(
 /// Reacts to changes from any source (key press, external code, etc.).
 pub(crate) fn sync_console_ui(
     mut commands: Commands,
-    state: Res<ConsoleState>,
+    mut state: ResMut<ConsoleState>,
     overlay_q: Query<Entity, With<DevConsoleOverlay>>,
     assets: Res<ConsoleAssets>,
     config: Res<ConsoleConfig>,
@@ -70,6 +70,7 @@ pub(crate) fn sync_console_ui(
 
     if state.open {
         spawn_console_ui(&mut commands, &assets, &config, &state.input);
+        state.mark_input_changed();
     } else {
         for entity in &overlay_q {
             commands.entity(entity).despawn();
@@ -193,23 +194,27 @@ pub(crate) fn capture_console_input(
             }
             Key::Tab => {
                 if shift && !state.completion_items.is_empty() {
-                    state.match_index = (state.match_index + state.completion_items.len() - 1)
-                        % state.completion_items.len();
+                    state.select_previous_completion();
                     continue;
                 }
                 if let Some(cursor) = state.apply_selected_completion() {
+                    state.cmd_history_index = None;
+                    state.cmd_history_draft.clear();
                     set_editable_text(&mut input, &state.input, cursor);
                     continue;
                 }
             }
             Key::ArrowUp => {
-                if !state.completion_items.is_empty() {
-                    // Dropdown navigation takes priority.
-                    state.match_index = (state.match_index + state.completion_items.len() - 1)
-                        % state.completion_items.len();
+                if state.cmd_history_index.is_none()
+                    && !state.completion_items.is_empty()
+                    && state.match_index > 0
+                {
+                    state.select_previous_completion();
                     continue;
                 }
-                // Command history: go to older entry.
+                // At the first suggestion, Up enters history browsing. Once
+                // browsing, history keeps priority over completion results for
+                // recalled commands.
                 if state.cmd_history.is_empty() {
                     continue;
                 }
@@ -233,8 +238,8 @@ pub(crate) fn capture_console_input(
                 continue;
             }
             Key::ArrowDown => {
-                if !state.completion_items.is_empty() {
-                    state.match_index = (state.match_index + 1) % state.completion_items.len();
+                if state.cmd_history_index.is_none() && !state.completion_items.is_empty() {
+                    state.select_next_completion();
                     continue;
                 }
                 // Command history: go to newer entry or restore draft.
@@ -522,8 +527,10 @@ fn write_line(
 
 #[cfg(test)]
 mod tests {
-    use super::{capture_console_input, execute_pending_commands, queue_bound_commands};
-    use crate::ui::ConsoleInput;
+    use super::{
+        capture_console_input, execute_pending_commands, queue_bound_commands, sync_console_ui,
+    };
+    use crate::ui::{ConsoleAssets, ConsoleInput};
     use crate::{
         CommandArgs, ConsoleAliases, ConsoleAppExt, ConsoleBinds, ConsoleBuffer,
         ConsoleCommandQueue, ConsoleConfig, ConsoleKeyBinding, ConsoleKeyModifiers, ConsoleLevel,
@@ -555,6 +562,107 @@ mod tests {
             .add_console_command("status", "status", structured)
             .add_plugins(crate::commands::plugin);
         app
+    }
+
+    #[test]
+    fn opening_console_requests_completions_for_empty_input() {
+        let mut app = App::new();
+        app.insert_resource(ConsoleConfig::default())
+            .insert_resource(ConsoleState {
+                open: true,
+                ..default()
+            })
+            .insert_resource(ConsoleAssets {
+                font: Handle::default(),
+            })
+            .add_systems(Update, sync_console_ui);
+
+        app.update();
+
+        assert!(app.world().resource::<ConsoleState>().completion_dirty);
+    }
+
+    #[test]
+    fn up_from_first_suggestion_browses_history_until_draft_is_restored() {
+        let mut app = App::new();
+        app.insert_resource(ConsoleConfig::default())
+            .insert_resource(ConsoleState {
+                open: true,
+                completion_items: vec![
+                    crate::CompletionItem::new("alpha", 0..0),
+                    crate::CompletionItem::new("beta", 0..0),
+                ],
+                cmd_history: vec!["echo older".into(), "echo newer".into()],
+                ..default()
+            })
+            .insert_resource(ButtonInput::<KeyCode>::default())
+            .init_resource::<ConsoleCommandQueue>()
+            .add_message::<KeyboardInput>()
+            .add_systems(Update, capture_console_input);
+        app.world_mut().spawn((ConsoleInput, EditableText::new("")));
+
+        for (key, expected) in [
+            (Key::ArrowUp, "echo newer"),
+            (Key::ArrowUp, "echo older"),
+            (Key::ArrowDown, "echo newer"),
+            (Key::ArrowDown, ""),
+        ] {
+            app.world_mut().write_message(KeyboardInput {
+                key_code: match &key {
+                    Key::ArrowUp => KeyCode::ArrowUp,
+                    Key::ArrowDown => KeyCode::ArrowDown,
+                    _ => unreachable!(),
+                },
+                logical_key: key,
+                state: ButtonState::Pressed,
+                text: None,
+                repeat: false,
+                window: Entity::PLACEHOLDER,
+            });
+            app.update();
+            assert_eq!(app.world().resource::<ConsoleState>().input, expected);
+        }
+
+        assert_eq!(
+            app.world().resource::<ConsoleState>().cmd_history_index,
+            None
+        );
+    }
+
+    #[test]
+    fn accepting_completion_exits_history_browsing() {
+        let mut app = App::new();
+        app.insert_resource(ConsoleConfig::default())
+            .insert_resource(ConsoleState {
+                open: true,
+                input: "ec".into(),
+                completion_items: vec![crate::CompletionItem::new("echo", 0..2)],
+                cmd_history: vec!["ec".into()],
+                cmd_history_index: Some(0),
+                cmd_history_draft: "draft".into(),
+                ..default()
+            })
+            .insert_resource(ButtonInput::<KeyCode>::default())
+            .init_resource::<ConsoleCommandQueue>()
+            .add_message::<KeyboardInput>()
+            .add_systems(Update, capture_console_input);
+        app.world_mut()
+            .spawn((ConsoleInput, EditableText::new("ec")));
+        app.world_mut().write_message(KeyboardInput {
+            key_code: KeyCode::Tab,
+            logical_key: Key::Tab,
+            state: ButtonState::Pressed,
+            text: None,
+            repeat: false,
+            window: Entity::PLACEHOLDER,
+        });
+
+        app.update();
+
+        let state = app.world().resource::<ConsoleState>();
+        assert_eq!(state.input, "echo ");
+        assert_eq!(state.cmd_history_index, None);
+        assert!(state.cmd_history_draft.is_empty());
     }
 
     #[test]

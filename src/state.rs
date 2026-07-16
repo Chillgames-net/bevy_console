@@ -8,10 +8,9 @@ pub struct ConsoleState {
     pub enabled: bool,
     pub open: bool,
     pub input: String,
-    /// Rich completion candidates for the current command word or argument.
+    /// All ranked completion candidates for the current command word or argument.
     pub completion_items: Vec<CompletionItem>,
-    /// Number of completion candidates omitted because they exceed the
-    /// configured suggestion limit.
+    /// Number of completion candidates beyond the first visible suggestion page.
     pub completion_overflow: usize,
     /// Index into `completion_items` that is currently highlighted.
     pub match_index: usize,
@@ -92,10 +91,30 @@ impl ConsoleState {
     pub(crate) fn set_completions(&mut self, items: Vec<CompletionItem>, overflow: usize) {
         self.completion_items = items;
         self.completion_overflow = overflow;
-        if self.match_index >= self.completion_items.len() {
-            self.match_index = 0;
-        }
+        self.match_index = 0;
         self.completion_dirty = false;
+    }
+
+    pub(crate) fn select_previous_completion(&mut self) {
+        if !self.completion_items.is_empty() {
+            self.match_index =
+                (self.match_index + self.completion_items.len() - 1) % self.completion_items.len();
+        }
+    }
+
+    pub(crate) fn select_next_completion(&mut self) {
+        if !self.completion_items.is_empty() {
+            self.match_index = (self.match_index + 1) % self.completion_items.len();
+        }
+    }
+
+    pub(crate) fn completion_page_range(&self, page_size: usize) -> std::ops::Range<usize> {
+        if page_size == 0 || self.completion_items.is_empty() {
+            return 0..0;
+        }
+        let selected = self.match_index.min(self.completion_items.len() - 1);
+        let start = selected / page_size * page_size;
+        start..(start + page_size).min(self.completion_items.len())
     }
 
     pub(crate) fn clear_completions(&mut self) {
@@ -251,6 +270,56 @@ mod tests {
 
         assert_eq!(state.apply_selected_completion(), None);
         assert_eq!(state.input, "map fo");
+    }
+
+    #[test]
+    fn completion_navigation_crosses_pages_and_wraps() {
+        let mut state = ConsoleState {
+            completion_items: (0..7)
+                .map(|index| crate::CompletionItem::new(format!("item-{index}"), 0..0))
+                .collect(),
+            ..ConsoleState::default()
+        };
+
+        assert_eq!(state.completion_page_range(3), 0..3);
+        state.match_index = 2;
+        state.select_next_completion();
+        assert_eq!(state.match_index, 3);
+        assert_eq!(state.completion_page_range(3), 3..6);
+
+        state.match_index = 6;
+        assert_eq!(state.completion_page_range(3), 6..7);
+        state.select_next_completion();
+        assert_eq!(state.match_index, 0);
+        assert_eq!(state.completion_page_range(3), 0..3);
+
+        state.select_previous_completion();
+        assert_eq!(state.match_index, 6);
+        assert_eq!(state.completion_page_range(3), 6..7);
+    }
+
+    #[test]
+    fn completion_page_range_is_empty_when_page_size_is_zero() {
+        let state = ConsoleState {
+            completion_items: vec![crate::CompletionItem::new("item", 0..0)],
+            ..ConsoleState::default()
+        };
+
+        assert_eq!(state.completion_page_range(0), 0..0);
+    }
+
+    #[test]
+    fn applies_a_completion_selected_from_a_later_page() {
+        let mut state = ConsoleState::default();
+        state.replace_input("ma".into());
+        state.completion_items = ["map", "marker", "material"]
+            .into_iter()
+            .map(|label| crate::CompletionItem::new(label, 0..2))
+            .collect();
+        state.match_index = 2;
+
+        assert_eq!(state.apply_selected_completion(), Some(9));
+        assert_eq!(state.input, "material ");
     }
 
     #[test]

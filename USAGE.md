@@ -84,7 +84,9 @@ app.add_console_completer("map", 0, complete_maps);
 
 Quoted arguments and backslash escapes are parsed before execution, so commands
 receive `map "my test map"` as one argument. Tab inserts the selected command
-or argument candidate; Up/Down selects candidates or command history.
+or argument candidate; Up/Down selects candidates or command history. When
+there are more candidates than `ConsoleConfig::max_suggestions`, navigation
+continues through additional suggestion pages.
 
 ## Resource properties
 
@@ -252,7 +254,9 @@ chill_bevy_console = { version = "0.3", features = ["embedded-font"] }
 
 Enable the `persistent-history` cargo feature to load and save submitted
 commands for Up/Down recall. Console display output, resources, aliases, and
-other runtime console state are never persisted by this crate.
+other runtime console state are never persisted by this crate. Restored command
+prompts are shown in the history panel at startup, but their previous output is
+not restored and the commands are not executed again.
 
 ```toml
 chill_bevy_console = { version = "0.3", features = ["persistent-history"] }
