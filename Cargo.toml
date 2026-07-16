@@ -1,7 +1,12 @@
+[workspace]
+members = ["derive"]
+resolver = "3"
+
 [package]
 name = "chill_bevy_console"
-version = "0.2.1"
+version = "0.3.0"
 edition = "2024"
+rust-version = "1.95"
 description = "A configurable developer console plugin for Bevy games"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/Chillgames-net/bevy_console"
@@ -10,6 +15,15 @@ documentation = "https://docs.rs/chill_bevy_console"
 readme = "README.md"
 keywords = ["bevy", "console", "gamedev", "plugin", "dev-tools"]
 categories = ["game-development"]
+autobins = false
+include = [
+    "src/**",
+    "examples/**",
+    "assets/UbuntuMono-R.ttf",
+    "Cargo.toml",
+    "README.md",
+    "USAGE.md",
+]
 
 [lib]
 name = "chill_bevy_console"
@@ -19,24 +33,25 @@ path = "src/lib.rs"
 all-features = true
 
 [features]
+# Enable every optional console capability.
+all = ["embedded-font", "persistent-history", "resource-properties"]
 # Embeds assets/UbuntuMono-R.ttf into the binary and uses it as the default font.
 embedded-font = []
-# Loads and saves the user's command history (Up/Down recall) to a plain-text
-# file between runs, controlled by `ConsoleConfig::history_file`.
+# Loads and saves command recall history between runs, controlled by
+# `ConsoleConfig::history_file`.
 persistent-history = []
+# Exposes opt-in fields on Bevy resources through the built-in get/res
+# console commands. The custom derive is re-exported when this is enabled.
+resource-properties = ["dep:chill_bevy_console_derive"]
 
 [dependencies]
 bevy = { version = "0.19", default-features = false, features = [
     "keyboard",
     "mouse",
-    "bevy_asset",
-    "bevy_color",
     "bevy_log",
-    "bevy_text",
-    "bevy_ui",
-    "bevy_render",
-    "bevy_scene",
+    "bevy_ui_widgets",
 ] }
+chill_bevy_console_derive = { version = "0.3.0", path = "derive", optional = true }
 
 # Examples use DefaultPlugins, which needs bevy's default features (winit, etc.).
 [dev-dependencies]
@@ -55,6 +70,10 @@ name = "custom_config"
 path = "examples/custom_config.rs"
 
 [[example]]
+name = "bindings"
+path = "examples/bindings.rs"
+
+[[example]]
 name = "gameplay_blocking"
 path = "examples/gameplay_blocking.rs"
 
@@ -62,3 +81,13 @@ path = "examples/gameplay_blocking.rs"
 name = "persistent_history"
 path = "examples/persistent_history.rs"
 required-features = ["persistent-history"]
+
+[[example]]
+name = "advanced"
+path = "examples/advanced.rs"
+required-features = ["resource-properties"]
+
+[[example]]
+name = "resource_properties"
+path = "examples/resource_properties.rs"
+required-features = ["resource-properties"]
