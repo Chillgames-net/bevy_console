@@ -1,21 +1,616 @@
-use crate::{CommandArgs, ConsoleAppExt, ConsoleRegistry, ConsoleState};
+use crate::{
+    completion::runtime_command_completions, ArgumentSpec, BuiltinCommand, CommandArgs,
+    CommandSpec, CompletionItem, CompletionRequest, ConsoleAliases, ConsoleAppExt, ConsoleBinds,
+    ConsoleBuffer, ConsoleConfig, ConsoleKeyBinding, ConsoleKeyModifiers, ConsoleRegistry,
+    ConsoleResult,
+};
 use bevy::prelude::*;
+use bevy::reflect::{enums::DynamicEnum, FromReflect, Typed};
 
 pub fn plugin(app: &mut App) {
-    app.add_console_command("clear", "clear — clear the console history", clear_cmd);
-    app.add_console_command("help", "help — list all available commands", help_cmd);
+    let enabled = app
+        .world()
+        .resource::<ConsoleConfig>()
+        .builtin_commands
+        .clone();
+    if enabled.contains(&BuiltinCommand::Clear) {
+        app.add_console_command_spec(
+            CommandSpec::new("clear")
+                .help("clear - clear the console output")
+                .summary("Clear the console output"),
+            clear_cmd,
+        );
+    }
+    if enabled.contains(&BuiltinCommand::Help) {
+        app.add_console_command_spec(
+            CommandSpec::new("help")
+                .help("help [command] - show available commands or command help")
+                .summary("Show command help")
+                .args([ArgumentSpec::new("command").help("Command to describe")]),
+            help_cmd,
+        );
+    }
+    if enabled.contains(&BuiltinCommand::Alias) {
+        app.add_console_command_spec(
+            CommandSpec::new("alias")
+                .help("alias <list|get|set|remove> [name] [command...] - manage runtime aliases")
+                .summary("Manage runtime command aliases")
+                .args([
+                    ArgumentSpec::new("operation"),
+                    ArgumentSpec::new("name").help("Alias name"),
+                    ArgumentSpec::new("command").help("Command expansion"),
+                ]),
+            alias_cmd,
+        )
+        .add_console_completer("alias", 0, complete_alias_operations)
+        .add_console_completer("alias", 1, complete_alias_names)
+        .add_console_completer("alias", 2, complete_alias_commands);
+    }
+    if enabled.contains(&BuiltinCommand::Bind) {
+        app.add_console_command_spec(
+            CommandSpec::new("bind")
+                .help("bind <list|get|set|remove> [key] [command...] - manage key bindings")
+                .summary("Manage runtime key bindings")
+                .args([
+                    ArgumentSpec::new("operation"),
+                    ArgumentSpec::new("key").help("Key binding, e.g. meta+KeyW or F1"),
+                    ArgumentSpec::new("command").help("Command to run"),
+                ]),
+            bind_cmd,
+        )
+        .add_console_completer("bind", 0, complete_bind_operations)
+        .add_console_completer("bind", 2, complete_bind_commands);
+    }
 }
 
-fn clear_cmd(In(_args): CommandArgs, mut state: ResMut<ConsoleState>) -> String {
-    state.clear_history();
-    String::new()
+fn clear_cmd(In(_args): CommandArgs, mut buffer: ResMut<ConsoleBuffer>) -> ConsoleResult {
+    buffer.clear();
+    ConsoleResult::default()
 }
 
-fn help_cmd(In(_args): CommandArgs, registry: Res<ConsoleRegistry>) -> String {
-    registry
-        .commands
-        .values()
-        .map(|def| def.usage)
-        .collect::<Vec<_>>()
-        .join("\n")
+fn help_cmd(In(args): CommandArgs, registry: Res<ConsoleRegistry>) -> ConsoleResult {
+    if let Some(name) = args.get(0) {
+        return registry.get(name).map_or_else(
+            || ConsoleResult::error(format!("Unknown command: {name}")),
+            |def| {
+                let help = def.spec.long_help.unwrap_or(def.spec.summary);
+                let mut lines = vec![def.spec.usage.to_string()];
+                if !help.is_empty() && help != def.spec.usage {
+                    lines.push(help.to_string());
+                }
+                if !def.spec.aliases.is_empty() {
+                    lines.push(format!("Aliases: {}", def.spec.aliases.join(", ")));
+                }
+                ConsoleResult::info(lines.join("\n"))
+            },
+        );
+    }
+
+    ConsoleResult::info(
+        registry
+            .commands
+            .values()
+            .filter(|def| !def.spec.hidden)
+            .map(|def| def.spec.usage)
+            .collect::<Vec<_>>()
+            .join("\n"),
+    )
+}
+
+fn alias_cmd(
+    In(args): CommandArgs,
+    registry: Res<ConsoleRegistry>,
+    mut aliases: ResMut<ConsoleAliases>,
+) -> ConsoleResult {
+    let Some(operation) = args.get(0) else {
+        return ConsoleResult::error("Usage: alias <list|get|set|remove> [name] [command...]");
+    };
+    match operation.to_ascii_lowercase().as_str() {
+        "list" if args.len() == 1 => {
+            let aliases = aliases
+                .iter()
+                .map(|(name, expansion)| format!("{name} = {expansion}"))
+                .collect::<Vec<_>>();
+            if aliases.is_empty() {
+                ConsoleResult::info("No runtime aliases defined")
+            } else {
+                ConsoleResult::info(aliases.join("\n"))
+            }
+        }
+        "get" => {
+            let Some(name) = args.get(1) else {
+                return ConsoleResult::error("Usage: alias get <name>");
+            };
+            if args.len() != 2 {
+                return ConsoleResult::error("Usage: alias get <name>");
+            }
+            aliases.get(name).map_or_else(
+                || ConsoleResult::error(format!("Unknown alias: {name}")),
+                |expansion| ConsoleResult::info(format!("{name} = {expansion}")),
+            )
+        }
+        "set" => {
+            let Some(name) = args.get(1) else {
+                return ConsoleResult::error("Usage: alias set <name> <command...>");
+            };
+            if args.len() < 3 {
+                return ConsoleResult::error("Usage: alias set <name> <command...>");
+            }
+            if registry.get(name).is_some() {
+                return ConsoleResult::error(format!(
+                    "Cannot create alias `{}`: it is already a registered command",
+                    name
+                ));
+            }
+            let expansion = args.rest(2);
+            aliases.set(name, &expansion);
+            ConsoleResult::info(format!("{name} = {expansion}"))
+        }
+        "remove" => {
+            let Some(name) = args.get(1) else {
+                return ConsoleResult::error("Usage: alias remove <name>");
+            };
+            if args.len() != 2 {
+                return ConsoleResult::error("Usage: alias remove <name>");
+            }
+            if aliases.remove(name).is_some() {
+                ConsoleResult::info(format!("Removed alias: {name}"))
+            } else {
+                ConsoleResult::error(format!("Unknown alias: {name}"))
+            }
+        }
+        _ => ConsoleResult::error("Usage: alias <list|get|set|remove> [name] [command...]"),
+    }
+}
+
+fn complete_alias_operations(In(request): In<CompletionRequest>) -> Vec<CompletionItem> {
+    operation_items(
+        &request,
+        [
+            ("list", "Lists runtime aliases"),
+            ("get", "Shows an alias"),
+            ("set", "Creates or updates an alias"),
+            ("remove", "Removes an alias"),
+        ],
+    )
+}
+
+fn complete_alias_names(
+    In(request): In<CompletionRequest>,
+    aliases: Res<ConsoleAliases>,
+) -> Vec<CompletionItem> {
+    if !matches!(
+        request
+            .parsed
+            .tokens
+            .get(1)
+            .map(|token| token.value.as_str()),
+        Some("get" | "remove")
+    ) {
+        return Vec::new();
+    }
+    aliases
+        .iter()
+        .map(|(name, expansion)| {
+            let mut item = CompletionItem::new(name, request.parsed.replacement_range());
+            item.detail = expansion.into();
+            item
+        })
+        .collect()
+}
+
+fn complete_alias_commands(
+    In(request): In<CompletionRequest>,
+    registry: Res<ConsoleRegistry>,
+    aliases: Res<ConsoleAliases>,
+) -> Vec<CompletionItem> {
+    if !matches!(
+        request
+            .parsed
+            .tokens
+            .get(1)
+            .map(|token| token.value.as_str()),
+        Some("set")
+    ) {
+        return Vec::new();
+    }
+    runtime_command_completions(&registry, &aliases, request.parsed.replacement_range())
+}
+
+fn bind_cmd(In(args): CommandArgs, mut binds: ResMut<ConsoleBinds>) -> ConsoleResult {
+    let Some(operation) = args.get(0) else {
+        return ConsoleResult::error("Usage: bind <list|get|set|remove> [key] [command...]");
+    };
+    match operation.to_ascii_lowercase().as_str() {
+        "list" if args.len() == 1 => {
+            let binds = binds
+                .iter()
+                .map(|(binding, command)| format!("{binding} = {command}"))
+                .collect::<Vec<_>>();
+            if binds.is_empty() {
+                ConsoleResult::info("No runtime key bindings defined")
+            } else {
+                ConsoleResult::info(binds.join("\n"))
+            }
+        }
+        "get" => {
+            let Some(name) = args.get(1) else {
+                return ConsoleResult::error("Usage: bind get <key>");
+            };
+            if args.len() != 2 {
+                return ConsoleResult::error("Usage: bind get <key>");
+            }
+            let Some(binding) = parse_key_binding(name) else {
+                return ConsoleResult::error(format!("Unknown key: {name}"));
+            };
+            binds.get_binding(binding).map_or_else(
+                || ConsoleResult::error(format!("No binding for {binding}")),
+                |command| ConsoleResult::info(format!("{binding} = {command}")),
+            )
+        }
+        "set" => {
+            let Some(name) = args.get(1) else {
+                return ConsoleResult::error("Usage: bind set <key> <command...>");
+            };
+            if args.len() < 3 {
+                return ConsoleResult::error("Usage: bind set <key> <command...>");
+            }
+            let Some(binding) = parse_key_binding(name) else {
+                return ConsoleResult::error(format!("Unknown key: {name}"));
+            };
+            let command = args.rest(2);
+            binds.set_binding(binding, &command);
+            ConsoleResult::info(format!("{binding} = {command}"))
+        }
+        "remove" => {
+            let Some(name) = args.get(1) else {
+                return ConsoleResult::error("Usage: bind remove <key>");
+            };
+            if args.len() != 2 {
+                return ConsoleResult::error("Usage: bind remove <key>");
+            }
+            let Some(binding) = parse_key_binding(name) else {
+                return ConsoleResult::error(format!("Unknown key: {name}"));
+            };
+            if binds.remove_binding(binding).is_some() {
+                ConsoleResult::info(format!("Removed binding: {binding}"))
+            } else {
+                ConsoleResult::error(format!("No binding for {binding}"))
+            }
+        }
+        _ => ConsoleResult::error("Usage: bind <list|get|set|remove> [key] [command...]"),
+    }
+}
+
+fn complete_bind_operations(In(request): In<CompletionRequest>) -> Vec<CompletionItem> {
+    operation_items(
+        &request,
+        [
+            ("list", "Lists runtime key bindings"),
+            ("get", "Shows a key binding"),
+            ("set", "Creates or updates a key binding"),
+            ("remove", "Removes a key binding"),
+        ],
+    )
+}
+
+fn complete_bind_commands(
+    In(request): In<CompletionRequest>,
+    registry: Res<ConsoleRegistry>,
+    aliases: Res<ConsoleAliases>,
+) -> Vec<CompletionItem> {
+    if !matches!(
+        request
+            .parsed
+            .tokens
+            .get(1)
+            .map(|token| token.value.as_str()),
+        Some("set")
+    ) {
+        return Vec::new();
+    }
+    runtime_command_completions(&registry, &aliases, request.parsed.replacement_range())
+}
+
+fn operation_items<const N: usize>(
+    request: &CompletionRequest,
+    operations: [(&str, &str); N],
+) -> Vec<CompletionItem> {
+    operations
+        .into_iter()
+        .map(|(operation, detail)| {
+            let mut item = CompletionItem::new(operation, request.parsed.replacement_range());
+            item.detail = detail.into();
+            item
+        })
+        .collect()
+}
+
+fn parse_key_binding(input: &str) -> Option<ConsoleKeyBinding> {
+    let mut modifiers = ConsoleKeyModifiers::default();
+    let mut key = None;
+    for part in input.split('+') {
+        if part.is_empty() {
+            return None;
+        }
+        match part.to_ascii_lowercase().as_str() {
+            "ctrl" | "control" if !modifiers.ctrl => modifiers.ctrl = true,
+            "meta" | "cmd" | "command" if !modifiers.meta => modifiers.meta = true,
+            "shift" if !modifiers.shift => modifiers.shift = true,
+            "alt" if !modifiers.alt => modifiers.alt = true,
+            _ => {
+                let parsed = parse_keycode(part)?;
+                if key.replace(parsed).is_some() {
+                    return None;
+                }
+            }
+        }
+    }
+    key.map(|key| ConsoleKeyBinding { key, modifiers })
+}
+
+fn parse_keycode(name: &str) -> Option<KeyCode> {
+    let shorthand = match name {
+        name if name.len() == 1 && name.as_bytes()[0].is_ascii_alphabetic() => {
+            format!("Key{}", name.to_ascii_uppercase())
+        }
+        name if name.len() == 1 && name.as_bytes()[0].is_ascii_digit() => {
+            format!("Digit{name}")
+        }
+        _ => name.to_string(),
+    };
+    let variant = KeyCode::type_info()
+        .as_enum()
+        .expect("KeyCode must remain an enum")
+        .iter()
+        .find(|variant| variant.name().eq_ignore_ascii_case(&shorthand))
+        .filter(|variant| variant.as_unit_variant().is_ok())?;
+    KeyCode::from_reflect(&DynamicEnum::new(variant.name(), ()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{help_cmd, parse_key_binding, plugin};
+    use crate::{
+        Args, BuiltinCommand, CommandArgs, CommandSpec, ConsoleAliases, ConsoleBinds,
+        ConsoleBuffer, ConsoleCommandExecuted, ConsoleCommandQueue, ConsoleConfig,
+        ConsoleKeyBinding, ConsoleKeyModifiers, ConsoleLevel, ConsoleRegistry, ConsoleRequest,
+        ConsoleResult, ConsoleState,
+    };
+    use bevy::prelude::*;
+
+    fn noop(In(_args): CommandArgs) -> ConsoleResult {
+        ConsoleResult::default()
+    }
+
+    #[test]
+    fn help_omits_duplicated_usage_but_shows_an_explicit_summary() {
+        let mut world = World::new();
+        world.init_resource::<ConsoleRegistry>();
+        let echo = world.register_system(noop);
+        let described_echo = world.register_system(noop);
+        let help = world.register_system(help_cmd);
+        {
+            let mut registry = world.resource_mut::<ConsoleRegistry>();
+            registry.register_result_spec(CommandSpec::new("echo").help("echo <text>"), echo);
+            registry.register_result_spec(
+                CommandSpec::new("described-echo")
+                    .help("described-echo <text>")
+                    .summary("Echo text to the console"),
+                described_echo,
+            );
+        }
+
+        assert_eq!(
+            world
+                .run_system_with(help, Args::from(vec!["echo".to_string()]))
+                .unwrap()
+                .lines,
+            vec![(ConsoleLevel::Info, "echo <text>".to_string())]
+        );
+        assert_eq!(
+            world
+                .run_system_with(help, Args::from(vec!["described-echo".to_string()]))
+                .unwrap()
+                .lines,
+            vec![(
+                ConsoleLevel::Info,
+                "described-echo <text>\nEcho text to the console".to_string(),
+            )]
+        );
+    }
+
+    #[test]
+    fn runtime_aliases_cannot_shadow_registered_commands() {
+        let mut app = App::new();
+        app.insert_resource(ConsoleConfig::default())
+            .insert_resource(ConsoleState::default())
+            .insert_resource(ConsoleBuffer::default())
+            .init_resource::<ConsoleAliases>()
+            .init_resource::<ConsoleBinds>()
+            .init_resource::<ConsoleCommandQueue>()
+            .add_message::<ConsoleCommandExecuted>()
+            .add_plugins(plugin);
+
+        app.world_mut()
+            .resource_mut::<ConsoleCommandQueue>()
+            .push(ConsoleRequest::new("alias set clear echo ignored"));
+        crate::input::execute_pending_commands(app.world_mut());
+
+        assert!(app
+            .world()
+            .resource::<ConsoleAliases>()
+            .get("clear")
+            .is_none());
+        assert_eq!(
+            app.world().resource::<ConsoleBuffer>().lines()[1].text,
+            "Cannot create alias `clear`: it is already a registered command"
+        );
+        assert_eq!(
+            app.world().resource::<ConsoleBuffer>().lines()[1].level,
+            ConsoleLevel::Error
+        );
+        let messages = app.world().resource::<Messages<ConsoleCommandExecuted>>();
+        let mut cursor = messages.get_cursor();
+        assert!(!cursor.read(messages).next().unwrap().succeeded);
+    }
+
+    #[test]
+    fn alias_operations_manage_runtime_aliases() {
+        let mut app = App::new();
+        app.insert_resource(ConsoleConfig::default())
+            .insert_resource(ConsoleState::default())
+            .insert_resource(ConsoleBuffer::default())
+            .init_resource::<ConsoleAliases>()
+            .init_resource::<ConsoleBinds>()
+            .init_resource::<ConsoleCommandQueue>()
+            .add_message::<ConsoleCommandExecuted>()
+            .add_plugins(plugin);
+
+        app.world_mut()
+            .resource_mut::<ConsoleCommandQueue>()
+            .push(ConsoleRequest::new("alias set quicksave save slot_1"));
+        crate::input::execute_pending_commands(app.world_mut());
+        assert_eq!(
+            app.world().resource::<ConsoleAliases>().get("quicksave"),
+            Some("save slot_1")
+        );
+
+        app.world_mut()
+            .resource_mut::<ConsoleCommandQueue>()
+            .push(ConsoleRequest::new("alias get quicksave"));
+        crate::input::execute_pending_commands(app.world_mut());
+        assert_eq!(
+            app.world()
+                .resource::<ConsoleBuffer>()
+                .lines()
+                .back()
+                .unwrap()
+                .text,
+            "quicksave = save slot_1"
+        );
+
+        app.world_mut()
+            .resource_mut::<ConsoleCommandQueue>()
+            .push(ConsoleRequest::new("alias remove quicksave"));
+        crate::input::execute_pending_commands(app.world_mut());
+        assert!(app
+            .world()
+            .resource::<ConsoleAliases>()
+            .get("quicksave")
+            .is_none());
+    }
+
+    #[test]
+    fn builtins_can_be_selected_individually() {
+        let mut app = App::new();
+        app.insert_resource(ConsoleConfig {
+            builtin_commands: [BuiltinCommand::Help].into_iter().collect(),
+            ..default()
+        })
+        .add_plugins(plugin);
+
+        let registry = app.world().resource::<ConsoleRegistry>();
+        assert!(registry.get("help").is_some());
+        assert!(registry.get("clear").is_none());
+        assert!(registry.get("get").is_none());
+    }
+
+    #[cfg(not(feature = "resource-properties"))]
+    #[test]
+    fn default_build_does_not_register_property_commands() {
+        let mut app = App::new();
+        app.insert_resource(ConsoleConfig::default())
+            .add_plugins(plugin);
+
+        let registry = app.world().resource::<ConsoleRegistry>();
+        assert!(registry.get("get").is_none());
+        assert!(registry.get("res").is_none());
+        assert!(registry.get("set").is_none());
+        assert!(registry.get("toggle").is_none());
+    }
+
+    #[test]
+    fn bind_operations_manage_runtime_key_bindings() {
+        let mut app = App::new();
+        app.insert_resource(ConsoleConfig::default())
+            .insert_resource(ConsoleState::default())
+            .insert_resource(ConsoleBuffer::default())
+            .init_resource::<ConsoleAliases>()
+            .init_resource::<ConsoleBinds>()
+            .init_resource::<ConsoleCommandQueue>()
+            .add_message::<ConsoleCommandExecuted>()
+            .add_plugins(plugin);
+
+        app.world_mut()
+            .resource_mut::<ConsoleCommandQueue>()
+            .push(ConsoleRequest::new("bind set f1 echo hello"));
+        crate::input::execute_pending_commands(app.world_mut());
+        assert_eq!(
+            app.world().resource::<ConsoleBinds>().get(KeyCode::F1),
+            Some("echo hello")
+        );
+
+        app.world_mut()
+            .resource_mut::<ConsoleCommandQueue>()
+            .push(ConsoleRequest::new("bind set ctrl+w echo save"));
+        crate::input::execute_pending_commands(app.world_mut());
+        assert_eq!(
+            app.world()
+                .resource::<ConsoleBinds>()
+                .get_binding(ConsoleKeyBinding {
+                    key: KeyCode::KeyW,
+                    modifiers: ConsoleKeyModifiers {
+                        ctrl: true,
+                        ..default()
+                    },
+                }),
+            Some("echo save")
+        );
+
+        app.world_mut()
+            .resource_mut::<ConsoleCommandQueue>()
+            .push(ConsoleRequest::new("bind get ctrl+w"));
+        crate::input::execute_pending_commands(app.world_mut());
+        assert_eq!(
+            app.world()
+                .resource::<ConsoleBuffer>()
+                .lines()
+                .back()
+                .unwrap()
+                .text,
+            "ctrl+KeyW = echo save"
+        );
+
+        app.world_mut()
+            .resource_mut::<ConsoleCommandQueue>()
+            .push(ConsoleRequest::new("bind remove F1"));
+        crate::input::execute_pending_commands(app.world_mut());
+        assert!(app
+            .world()
+            .resource::<ConsoleBinds>()
+            .get(KeyCode::F1)
+            .is_none());
+    }
+
+    #[test]
+    fn binding_parser_supports_combined_modifiers_and_rejects_invalid_chords() {
+        assert_eq!(
+            parse_key_binding("meta+shift+w"),
+            Some(ConsoleKeyBinding {
+                key: KeyCode::KeyW,
+                modifiers: ConsoleKeyModifiers {
+                    meta: true,
+                    shift: true,
+                    ..default()
+                },
+            })
+        );
+        assert_eq!(parse_key_binding("cmd+w"), parse_key_binding("meta+w"));
+        assert!(parse_key_binding("ctrl+shift").is_none());
+        assert!(parse_key_binding("meta+meta+w").is_none());
+        assert!(parse_key_binding("ctrl+ctrl+w").is_none());
+        assert!(parse_key_binding("w+e").is_none());
+        assert!(parse_key_binding("ctrl++w").is_none());
+    }
 }

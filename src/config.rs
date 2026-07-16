@@ -1,6 +1,41 @@
 use bevy::prelude::*;
+use std::collections::BTreeSet;
 #[cfg(feature = "persistent-history")]
 use std::path::PathBuf;
+
+/// A command provided by the console plugin rather than the host application.
+///
+/// [`ConsoleConfig::builtin_commands`] controls which of these commands are
+/// registered. All built-in commands are enabled by default.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum BuiltinCommand {
+    Clear,
+    Help,
+    Alias,
+    Bind,
+    #[cfg(feature = "resource-properties")]
+    Get,
+    #[cfg(feature = "resource-properties")]
+    Res,
+}
+
+impl BuiltinCommand {
+    /// Returns a set containing every built-in command.
+    pub fn all() -> BTreeSet<Self> {
+        [
+            Self::Clear,
+            Self::Help,
+            Self::Alias,
+            Self::Bind,
+            #[cfg(feature = "resource-properties")]
+            Self::Get,
+            #[cfg(feature = "resource-properties")]
+            Self::Res,
+        ]
+        .into_iter()
+        .collect()
+    }
+}
 
 /// All visual and behavioral settings for the developer console.
 ///
@@ -41,6 +76,12 @@ pub struct ConsoleConfig {
     pub history_padding: f32,
     /// Text color for history lines.
     pub history_text_color: Color,
+    /// Text color for trace/debug output lines.
+    pub history_debug_color: Color,
+    /// Text color for warning output lines.
+    pub history_warn_color: Color,
+    /// Text color for error output lines.
+    pub history_error_color: Color,
 
     // ── Input bar ─────────────────────────────────────────────────────────────
     /// Background color of the input bar.
@@ -57,7 +98,7 @@ pub struct ConsoleConfig {
     pub input_text_color: Color,
     /// Color of the ghost / autocomplete hint suffix.
     pub input_ghost_color: Color,
-    /// Prefix symbol shown before the cursor (e.g. `"▶ "`).
+    /// Prefix shown before the cursor (e.g. `"> "`).
     pub input_prefix: String,
 
     // ── Dropdown ──────────────────────────────────────────────────────────────
@@ -81,14 +122,34 @@ pub struct ConsoleConfig {
     // ── Behavior ──────────────────────────────────────────────────────────────
     /// The key that toggles the console open and closed. Defaults to backtick.
     pub toggle_key: KeyCode,
+    /// Built-in commands to register. Defaults to every [`BuiltinCommand`].
+    ///
+    /// For example, a console with just help and aliases can use:
+    ///
+    /// ```
+    /// # use chill_bevy_console::{BuiltinCommand, ConsoleConfig};
+    /// let config = ConsoleConfig {
+    ///     builtin_commands: [BuiltinCommand::Help, BuiltinCommand::Alias]
+    ///         .into_iter()
+    ///         .collect(),
+    ///     ..ConsoleConfig::default()
+    /// };
+    /// ```
+    pub builtin_commands: BTreeSet<BuiltinCommand>,
+    /// Maximum structured output lines kept in memory.
+    pub max_history_lines: usize,
+    /// Maximum submitted commands kept for Up/Down recall.
+    pub max_command_history: usize,
+    /// Maximum completion rows presented at once.
+    pub max_suggestions: usize,
+    /// Z-index applied to the console overlay.
+    pub z_index: i32,
 
     // ── Persistence (requires the `persistent-history` feature) ──────────────
-    /// Path to a plain-text file used to persist the console's display history
-    /// (commands and their outputs) between runs. The file is read once at
-    /// startup and rewritten whenever the history changes. Defaults to
-    /// `"console_history.txt"` in the current working directory; set to `None`
-    /// to disable persistence even with the feature enabled. Has no effect on
-    /// web/wasm targets.
+    /// Path to the plain-text file used to persist command recall history.
+    /// Defaults to `"console_history.txt"` in the current working directory;
+    /// set to `None` to disable persistence even with the feature enabled. Has
+    /// no effect on web/wasm targets.
     #[cfg(feature = "persistent-history")]
     pub history_file: Option<PathBuf>,
 }
@@ -111,11 +172,6 @@ impl ConsoleConfig {
             dropdown_highlight_text_color: Color::srgb(0.75, 0.92, 1.0),
             ..Self::default()
         }
-    }
-
-    /// Clean black and white. No color accents.
-    pub fn simple() -> Self {
-        Self::default()
     }
 
     /// Black background with green phosphor text.
@@ -169,6 +225,9 @@ impl Default for ConsoleConfig {
             history_bg: Color::srgba(0.05, 0.05, 0.05, 0.96),
             history_padding: 8.0,
             history_text_color: Color::srgb(0.90, 0.90, 0.90),
+            history_debug_color: Color::srgb(0.55, 0.55, 0.55),
+            history_warn_color: Color::srgb(1.0, 0.78, 0.25),
+            history_error_color: Color::srgb(1.0, 0.35, 0.35),
 
             input_bg: Color::srgba(0.0, 0.0, 0.0, 0.98),
             input_padding_h: 10.0,
@@ -177,7 +236,7 @@ impl Default for ConsoleConfig {
             input_border_color: Color::WHITE,
             input_text_color: Color::WHITE,
             input_ghost_color: Color::srgba(1.0, 1.0, 1.0, 0.25),
-            input_prefix: "\u{25b6} ".to_string(),
+            input_prefix: "> ".to_string(),
 
             dropdown_bg: Color::srgba(0.08, 0.08, 0.08, 0.97),
             dropdown_border_color: Color::srgb(0.35, 0.35, 0.35),
@@ -189,6 +248,11 @@ impl Default for ConsoleConfig {
             dropdown_highlight_text_color: Color::WHITE,
 
             toggle_key: KeyCode::Backquote,
+            builtin_commands: BuiltinCommand::all(),
+            max_history_lines: 2_000,
+            max_command_history: 500,
+            max_suggestions: 5,
+            z_index: i32::MAX,
 
             #[cfg(feature = "persistent-history")]
             history_file: Some(PathBuf::from("console_history.txt")),

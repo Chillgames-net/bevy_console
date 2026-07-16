@@ -1,99 +1,119 @@
-//! Optional display-history persistence — only compiled when the
-//! `persistent-history` feature is enabled.
-//!
-//! The whole console display (commands and their outputs) is mirrored to a
-//! plain-text file. On startup the file is read back into `ConsoleState` and
-//! Up/Down recall is rebuilt by extracting the `> command` echo lines.
+//! Optional command-history persistence.
 
-use crate::config::ConsoleConfig;
-use crate::state::ConsoleState;
+use crate::{ConsoleBuffer, ConsoleConfig, ConsoleState};
 use bevy::prelude::*;
+#[cfg(not(target_arch = "wasm32"))]
+use std::path::{Path, PathBuf};
 
-const ECHO_PREFIX: &str = "> ";
-const SESSION_SEPARATOR: &str = "── previous session ──";
-
-/// Plugin entry point — registers the save system.
-pub(crate) fn plugin(app: &mut App) {
-    app.add_systems(Update, persist_history);
+pub(crate) fn plugin(_app: &mut App) {
+    #[cfg(not(target_arch = "wasm32"))]
+    _app.add_systems(Update, persist_history);
 }
 
-/// Builds the initial `ConsoleState` from the persisted file (if any). The
-/// loaded display lines are restored verbatim, Up/Down recall is rebuilt from
-/// the `> ` echo lines, and a session separator is appended below the loaded
-/// content so the user can tell the boundary between past and current runs.
-pub(crate) fn load_initial_state(config: &ConsoleConfig) -> ConsoleState {
+pub(crate) fn load_initial_data(config: &ConsoleConfig) -> (ConsoleState, ConsoleBuffer) {
+    #[cfg(not(target_arch = "wasm32"))]
     let mut state = ConsoleState::default();
-    let Some(path) = &config.history_file else {
-        return state;
-    };
+    #[cfg(target_arch = "wasm32")]
+    let state = ConsoleState::default();
 
-    let lines = match std::fs::read_to_string(path) {
-        Ok(c) => c
-            .lines()
-            .map(str::trim_end)
-            .map(String::from)
-            .collect::<Vec<_>>(),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            info!(
-                "chill_bevy_console: history file {:?} not found yet (will be created on first command)",
-                path
-            );
-            return state;
-        }
-        Err(e) => {
-            warn!(
+    #[cfg(not(target_arch = "wasm32"))]
+    if let Some(path) = &config.history_file {
+        match std::fs::read_to_string(path) {
+            Ok(content) => state.restore_command_history(
+                content.lines().map(str::to_owned).collect(),
+                config.max_command_history,
+            ),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => warn!(
                 "chill_bevy_console: failed to read history file {:?}: {}",
-                path, e
-            );
-            return state;
+                path, error
+            ),
         }
-    };
-
-    state.cmd_history = lines
-        .iter()
-        .filter_map(|l| l.strip_prefix(ECHO_PREFIX).map(String::from))
-        .collect();
-    state.history = lines;
-    if !state.history.is_empty() {
-        state.history.push(SESSION_SEPARATOR.to_string());
     }
 
-    info!(
-        "chill_bevy_console: loaded {} history lines ({} recall entries) from {:?}",
-        state.history.len(),
-        state.cmd_history.len(),
-        path
-    );
-    state
+    (state, ConsoleBuffer::new(config.max_history_lines))
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Default)]
+struct PersistenceTracker {
+    initialized: bool,
+    revision: u64,
+    path: Option<PathBuf>,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
 fn persist_history(
     config: Res<ConsoleConfig>,
     state: Res<ConsoleState>,
-    mut last_seen: Local<u64>,
+    mut tracker: Local<PersistenceTracker>,
 ) {
-    if state.history_mutation_count == *last_seen {
+    let path = config.history_file.clone();
+    if !tracker.initialized {
+        tracker.initialized = true;
+        tracker.revision = state.command_history_revision;
+        tracker.path = path;
         return;
     }
-    *last_seen = state.history_mutation_count;
+    if tracker.revision == state.command_history_revision && tracker.path == path {
+        return;
+    }
 
-    let Some(path) = &config.history_file else {
+    tracker.revision = state.command_history_revision;
+    tracker.path.clone_from(&path);
+    let Some(path) = path else {
         return;
     };
+    if let Err(error) = write_history(&path, state.command_history()) {
+        warn!(
+            "chill_bevy_console: failed to write history file {:?}: {}",
+            path, error
+        );
+    }
+}
 
-    let mut content = state.history.join("\n");
+#[cfg(not(target_arch = "wasm32"))]
+fn write_history(path: &Path, commands: &[String]) -> std::io::Result<()> {
+    if let Some(parent) = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+    {
+        std::fs::create_dir_all(parent)?;
+    }
+    let mut content = commands.join("\n");
     if !content.is_empty() {
         content.push('\n');
     }
-    match std::fs::write(path, &content) {
-        Ok(()) => debug!(
-            "chill_bevy_console: wrote {} history lines to {:?}",
-            state.history.len(),
-            path
-        ),
-        Err(e) => warn!(
-            "chill_bevy_console: failed to write history file {:?}: {}",
-            path, e
-        ),
+    std::fs::write(path, content)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{load_initial_data, write_history};
+    use crate::ConsoleConfig;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn command_history_round_trips() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!(
+            "chill_bevy_console_history_{}_{}.txt",
+            std::process::id(),
+            unique
+        ));
+        write_history(&path, &["map forest".into(), "set debug true".into()]).unwrap();
+        let config = ConsoleConfig {
+            history_file: Some(path.clone()),
+            ..ConsoleConfig::default()
+        };
+
+        let (state, buffer) = load_initial_data(&config);
+
+        assert_eq!(state.command_history(), ["map forest", "set debug true"]);
+        assert!(buffer.lines().is_empty());
+        std::fs::remove_file(path).unwrap();
     }
 }

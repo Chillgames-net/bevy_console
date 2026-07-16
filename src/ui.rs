@@ -1,8 +1,11 @@
 use crate::config::ConsoleConfig;
-use crate::registry::ConsoleRegistry;
 use crate::state::ConsoleState;
+use crate::{ConsoleBuffer, ConsoleLevel};
+use bevy::input_focus::AutoFocus;
 use bevy::prelude::*;
-use bevy::text::FontSourceTemplate;
+use bevy::text::{EditableText, TextCursorStyle, TextLayoutInfo};
+use bevy::ui::widget::TextScroll;
+use std::collections::VecDeque;
 
 // ── Assets ────────────────────────────────────────────────────────────────────
 
@@ -41,7 +44,7 @@ pub(crate) struct DevConsoleOverlay;
 pub(crate) struct ConsoleHistory;
 
 #[derive(Component, Default, Clone)]
-pub(crate) struct ConsoleInputMain;
+pub(crate) struct ConsoleInput;
 
 #[derive(Component, Default, Clone)]
 pub(crate) struct ConsoleInputGhost;
@@ -49,182 +52,256 @@ pub(crate) struct ConsoleInputGhost;
 #[derive(Component, Default, Clone)]
 pub(crate) struct ConsoleDropdown;
 
+#[derive(Default)]
+pub(crate) struct RenderedHistory {
+    entity: Option<Entity>,
+    lines: VecDeque<(u64, Entity)>,
+}
+
+#[derive(Default)]
+pub(crate) struct RenderedDropdown {
+    entity: Option<Entity>,
+    items: Vec<crate::CompletionItem>,
+    overflow: usize,
+    match_index: usize,
+}
+
+impl RenderedDropdown {
+    fn differs_from(&self, dropdown: Entity, state: &ConsoleState) -> bool {
+        self.entity != Some(dropdown)
+            || self.items != state.completion_items
+            || self.overflow != state.completion_overflow
+            || self.match_index != state.match_index
+    }
+
+    fn update(&mut self, dropdown: Entity, state: &ConsoleState) {
+        self.entity = Some(dropdown);
+        self.items.clone_from(&state.completion_items);
+        self.overflow = state.completion_overflow;
+        self.match_index = state.match_index;
+    }
+}
+
 // ── Spawn ─────────────────────────────────────────────────────────────────────
 
 pub(crate) fn spawn_console_ui(
     commands: &mut Commands,
     assets: &ConsoleAssets,
     config: &ConsoleConfig,
+    initial_input: &str,
 ) {
-    let main_font = assets.font.clone();
-    let ghost_font = assets.font.clone();
-    let input_prefix = config.input_prefix.clone();
-    let font_size = config.font_size;
-    let history_height_vh = config.history_height_vh;
-    let history_padding = config.history_padding;
-    let history_bg = config.history_bg;
-    let input_padding_h = config.input_padding_h;
-    let input_padding_v = config.input_padding_v;
-    let input_border_width = config.input_border_width;
-    let input_bg = config.input_bg;
-    let input_border_color = config.input_border_color;
-    let input_text_color = config.input_text_color;
-    let input_ghost_color = config.input_ghost_color;
-    let dropdown_bg = config.dropdown_bg;
-    let dropdown_border_color = config.dropdown_border_color;
-
-    commands.spawn_scene(bsn! {
-        DevConsoleOverlay
-        Node {
-            position_type: PositionType::Absolute,
-            top: px(0),
-            left: px(0),
-            width: percent(100),
-            flex_direction: FlexDirection::Column,
-        }
-        ZIndex(200)
-        Children [
-            (
-                ConsoleHistory
+    commands
+        .spawn((
+            DevConsoleOverlay,
+            Node {
+                position_type: PositionType::Absolute,
+                top: Val::Px(0.0),
+                left: Val::Px(0.0),
+                width: Val::Percent(100.0),
+                flex_direction: FlexDirection::Column,
+                ..default()
+            },
+            ZIndex(config.z_index),
+        ))
+        .with_children(|parent| {
+            parent.spawn((
+                ConsoleHistory,
                 Node {
                     flex_direction: FlexDirection::Column,
-                    height: vh(history_height_vh),
-                    max_height: vh(history_height_vh),
-                    width: percent(100),
+                    height: Val::Vh(config.history_height_vh),
+                    max_height: Val::Vh(config.history_height_vh),
+                    width: Val::Percent(100.0),
                     overflow: Overflow::scroll_y(),
-                    padding: px(history_padding),
-                }
-                BackgroundColor({history_bg})
-                ScrollPosition
-            ),
-            (
-                Node {
-                    flex_direction: FlexDirection::Row,
-                    width: percent(100),
-                    padding: {UiRect::axes(
-                        Val::Px(input_padding_h),
-                        Val::Px(input_padding_v),
-                    )},
-                    border: {UiRect::top(Val::Px(input_border_width))},
-                }
-                BackgroundColor({input_bg})
-                BorderColor {
-                    top: {input_border_color},
-                    right: {input_border_color},
-                    bottom: {input_border_color},
-                    left: {input_border_color},
-                }
-                Children [
-                    (
-                        ConsoleInputMain
-                        Text({input_prefix})
-                        TextFont {
-                            font: FontSourceTemplate::Handle({main_font}),
-                            font_size: px(font_size),
-                        }
-                        TextColor({input_text_color})
-                    ),
-                    (
-                        ConsoleInputGhost
-                        Text("")
-                        TextFont {
-                            font: FontSourceTemplate::Handle({ghost_font}),
-                            font_size: px(font_size),
-                        }
-                        TextColor({input_ghost_color})
-                    ),
-                ]
-            ),
-            (
-                ConsoleDropdown
+                    padding: UiRect::all(Val::Px(config.history_padding)),
+                    ..default()
+                },
+                BackgroundColor(config.history_bg),
+                ScrollPosition::default(),
+            ));
+
+            parent
+                .spawn((
+                    Node {
+                        flex_direction: FlexDirection::Row,
+                        width: Val::Percent(100.0),
+                        padding: UiRect::axes(
+                            Val::Px(config.input_padding_h),
+                            Val::Px(config.input_padding_v),
+                        ),
+                        border: UiRect::top(Val::Px(config.input_border_width)),
+                        overflow: Overflow::clip_x(),
+                        ..default()
+                    },
+                    BackgroundColor(config.input_bg),
+                    BorderColor::all(config.input_border_color),
+                ))
+                .with_children(|input_row| {
+                    input_row.spawn((
+                        Text::new(config.input_prefix.clone()),
+                        console_text_font(&assets.font, config.font_size),
+                        TextColor(config.input_text_color),
+                    ));
+                    input_row
+                        .spawn(Node {
+                            flex_grow: 1.0,
+                            overflow: Overflow::clip_x(),
+                            ..default()
+                        })
+                        .with_children(|input_area| {
+                            input_area.spawn((
+                                ConsoleInput,
+                                EditableText::new(initial_input),
+                                TextCursorStyle {
+                                    color: config.input_text_color,
+                                    selection_color: config.input_border_color,
+                                    unfocused_selection_color: Color::NONE,
+                                    selected_text_color: None,
+                                },
+                                console_text_font(&assets.font, config.font_size),
+                                TextColor(config.input_text_color),
+                                TextLayout::no_wrap(),
+                                Node {
+                                    width: Val::Percent(100.0),
+                                    ..default()
+                                },
+                                AutoFocus,
+                            ));
+                            input_area.spawn((
+                                ConsoleInputGhost,
+                                Text::new(""),
+                                console_text_font(&assets.font, config.font_size),
+                                TextColor(config.input_ghost_color),
+                                Node {
+                                    position_type: PositionType::Absolute,
+                                    ..default()
+                                },
+                            ));
+                        });
+                });
+
+            parent.spawn((
+                ConsoleDropdown,
                 Node {
                     flex_direction: FlexDirection::Column,
-                    width: percent(100),
-                    border: {UiRect::bottom(Val::Px(1.0))},
-                }
-                BackgroundColor({dropdown_bg})
-                BorderColor {
-                    top: {dropdown_border_color},
-                    right: {dropdown_border_color},
-                    bottom: {dropdown_border_color},
-                    left: {dropdown_border_color},
-                }
-            ),
-        ]
-    });
+                    width: Val::Percent(100.0),
+                    border: UiRect::bottom(Val::Px(1.0)),
+                    ..default()
+                },
+                BackgroundColor(config.dropdown_bg),
+                BorderColor::all(config.dropdown_border_color),
+            ));
+        });
 }
 
 // ── Render ────────────────────────────────────────────────────────────────────
 
+#[allow(clippy::too_many_arguments)] // Bevy system parameters are dependency injection, not call-site arguments.
 pub(crate) fn update_console_ui(
     mut commands: Commands,
-    mut state: ResMut<ConsoleState>,
+    state: Res<ConsoleState>,
+    buffer: Res<ConsoleBuffer>,
     assets: Res<ConsoleAssets>,
     config: Res<ConsoleConfig>,
-    registry: Res<ConsoleRegistry>,
-    mut history_q: Query<(Entity, Option<&Children>, &mut ScrollPosition), With<ConsoleHistory>>,
-    mut main_q: Query<&mut Text, (With<ConsoleInputMain>, Without<ConsoleInputGhost>)>,
-    mut ghost_q: Query<&mut Text, (With<ConsoleInputGhost>, Without<ConsoleInputMain>)>,
+    mut history_q: Query<(Entity, &mut ScrollPosition), With<ConsoleHistory>>,
+    input_q: Query<(&EditableText, &TextLayoutInfo, &TextScroll), With<ConsoleInput>>,
+    mut ghost_q: Query<(&mut Text, &mut Node), With<ConsoleInputGhost>>,
     dropdown_q: Query<(Entity, Option<&Children>), With<ConsoleDropdown>>,
+    mut rendered_history: Local<RenderedHistory>,
+    mut rendered_dropdown: Local<RenderedDropdown>,
 ) {
     // ── History lines ─────────────────────────────────────────────────────────
-    if let Ok((history_entity, maybe_children, mut scroll_pos)) = history_q.single_mut() {
-        if state.history_dirty || maybe_children.is_none() {
-            if let Some(children) = maybe_children {
-                for child in children.iter() {
-                    commands.entity(child).despawn();
-                }
+    if let Ok((history_entity, mut scroll_pos)) = history_q.single_mut() {
+        let ui_recreated = rendered_history.entity != Some(history_entity);
+        if ui_recreated {
+            rendered_history.entity = Some(history_entity);
+            rendered_history.lines.clear();
+        }
+        if buffer.is_changed() || ui_recreated {
+            let first_buffer_id = buffer.lines().front().map(|line| line.id);
+            while rendered_history
+                .lines
+                .front()
+                .is_some_and(|(id, _)| Some(*id) != first_buffer_id)
+            {
+                let (_, entity) = rendered_history.lines.pop_front().unwrap();
+                commands.entity(entity).despawn();
             }
+
             let font = assets.font.clone();
             commands.entity(history_entity).with_children(|parent| {
-                for line in state.history.iter() {
-                    parent.spawn((
-                        Text::new(line.clone()),
-                        console_text_font(&font, config.history_font_size),
-                        TextColor(config.history_text_color),
-                    ));
+                for line in buffer.lines().iter().skip(rendered_history.lines.len()) {
+                    let entity = parent
+                        .spawn((
+                            Text::new(line.text.clone()),
+                            console_text_font(&font, config.history_font_size),
+                            TextColor(history_line_color(line.level, &config)),
+                        ))
+                        .id();
+                    rendered_history.lines.push_back((line.id, entity));
                 }
             });
-            state.bypass_change_detection().history_dirty = false;
         }
         if state.scroll_follow {
             scroll_pos.y = f32::MAX;
         }
     }
 
-    // ── Input ─────────────────────────────────────────────────────────────────
-    if let Ok(mut main) = main_q.single_mut() {
-        *main = Text::new(format!("{}{}", config.input_prefix, state.input));
-    }
-
-    if let Ok(mut ghost) = ghost_q.single_mut() {
-        let ghost_str = state
-            .matches
-            .get(state.match_index)
-            .filter(|m| m.starts_with(state.input.trim()))
-            .map(|m| m[state.input.len()..].to_string())
+    if let Ok((mut ghost, mut ghost_node)) = ghost_q.single_mut() {
+        let input = input_q.single().ok();
+        let cursor = input.map(|(input, _, _)| input.editor().raw_selection().focus().index());
+        let ghost_str = (cursor == Some(state.input.len()))
+            .then(|| {
+                state
+                    .completion_items
+                    .get(state.match_index)
+                    .and_then(|item| {
+                        state
+                            .input
+                            .get(item.replace.start..item.replace.end)
+                            .and_then(|fragment| item.insert_text.strip_prefix(fragment))
+                    })
+            })
+            .flatten()
+            .map(str::to_string)
             .unwrap_or_default();
-        *ghost = Text::new(format!("{ghost_str}_"));
+        *ghost = Text::new(ghost_str);
+        ghost_node.left = Val::Px(
+            input
+                .and_then(|(_, layout, scroll)| {
+                    layout
+                        .cursor
+                        .map(|(_, cursor)| (cursor.min.x - scroll.0.x) / layout.scale_factor)
+                })
+                .unwrap_or_default(),
+        );
     }
 
     // ── Dropdown ──────────────────────────────────────────────────────────────
     if let Ok((dropdown, maybe_children)) = dropdown_q.single() {
+        // Buffer-only updates do not affect completion results. Avoid even
+        // comparing the cached candidates in that common path.
+        if !state.is_changed() && rendered_dropdown.entity == Some(dropdown) {
+            return;
+        }
+        if !rendered_dropdown.differs_from(dropdown, &state) {
+            return;
+        }
+
         if let Some(children) = maybe_children {
             for child in children.iter() {
                 commands.entity(child).despawn();
             }
         }
 
-        if !state.matches.is_empty() {
+        if !state.completion_items.is_empty() || state.completion_overflow > 0 {
             commands.entity(dropdown).with_children(|parent| {
-                for (i, name) in state.matches.iter().enumerate() {
+                for (i, item) in state.completion_items.iter().enumerate() {
                     let selected = i == state.match_index;
-                    let label = registry
-                        .commands
-                        .get(name)
-                        .map(|def| def.usage)
-                        .unwrap_or(name.as_str())
-                        .to_string();
+                    let label = if item.detail.is_empty() {
+                        item.label.clone()
+                    } else {
+                        format!("{} - {}", item.label, item.detail)
+                    };
                     parent.spawn((
                         Node {
                             padding: UiRect::axes(
@@ -250,7 +327,35 @@ pub(crate) fn update_console_ui(
                         }),
                     ));
                 }
+
+                if state.completion_overflow > 0 {
+                    parent.spawn((
+                        Node {
+                            padding: UiRect::axes(
+                                Val::Px(config.dropdown_padding_h),
+                                Val::Px(config.dropdown_padding_v),
+                            ),
+                            width: Val::Percent(100.0),
+                            border: UiRect::top(Val::Px(1.0)),
+                            ..default()
+                        },
+                        BorderColor::all(config.dropdown_item_divider_color),
+                        Text::new(format!("+ {} more", state.completion_overflow)),
+                        console_text_font(&assets.font, config.dropdown_font_size),
+                        TextColor(config.dropdown_text_color),
+                    ));
+                }
             });
         }
+        rendered_dropdown.update(dropdown, &state);
+    }
+}
+
+fn history_line_color(level: ConsoleLevel, config: &ConsoleConfig) -> Color {
+    match level {
+        ConsoleLevel::Trace | ConsoleLevel::Debug => config.history_debug_color,
+        ConsoleLevel::Info => config.history_text_color,
+        ConsoleLevel::Warn => config.history_warn_color,
+        ConsoleLevel::Error => config.history_error_color,
     }
 }
