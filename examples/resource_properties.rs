@@ -12,7 +12,9 @@
 //!   cargo run --example resource_properties --features resource-properties
 
 use bevy::prelude::*;
-use chill_bevy_console::{ChillConsole, ConsoleAppExt, ConsoleLineMessage, ConsoleResource};
+use chill_bevy_console::{
+    BuiltinCommand, ChillConsole, ConsoleAppExt, ConsoleLineMessage, ConsoleResource,
+};
 
 #[derive(Resource, ConsoleResource, Debug)]
 #[console_resource(prefix = "render")]
@@ -30,7 +32,7 @@ struct RenderSettings {
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
-        .add_plugins(ChillConsole::default())
+        .add_plugins(ChillConsole::default().with_builtin_commands([BuiltinCommand::Res]))
         .insert_resource(RenderSettings {
             wireframes: false,
             max_fps: 60,

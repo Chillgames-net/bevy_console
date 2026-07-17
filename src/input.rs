@@ -1,4 +1,4 @@
-use crate::config::{BuiltinCommand, ConsoleConfig};
+use crate::config::{BuiltinCommand, BuiltinCommands, ConsoleConfig};
 use crate::state::ConsoleState;
 use crate::ui::{ConsoleAssets, ConsoleInput, DevConsoleOverlay, spawn_console_ui};
 use crate::{
@@ -6,12 +6,21 @@ use crate::{
     ConsoleCommandQueue, ConsoleLevel, ConsoleLineMessage, ConsoleLineSource, ConsoleRegistry,
     ConsoleRequest,
 };
+use bevy::ecs::system::SystemParam;
 use bevy::input::ButtonState;
 use bevy::input::keyboard::{Key, KeyboardInput};
 use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
 use bevy::prelude::*;
 use bevy::text::{EditableText, TextEdit};
 use bevy::ui::{ComputedNode, ScrollPosition};
+
+const CONSOLE_SCROLL_SPEED: f32 = 1.25;
+
+#[derive(SystemParam)]
+pub(crate) struct ConsoleInputSettings<'w> {
+    config: Res<'w, ConsoleConfig>,
+    builtin_commands: Res<'w, BuiltinCommands>,
+}
 
 // ── Run conditions ────────────────────────────────────────────────────────────
 
@@ -108,9 +117,10 @@ pub(crate) fn capture_console_input(
     mut key_events: MessageReader<KeyboardInput>,
     mut state: ResMut<ConsoleState>,
     keys: Res<ButtonInput<KeyCode>>,
-    config: Res<ConsoleConfig>,
+    settings: ConsoleInputSettings,
     mut queue: ResMut<ConsoleCommandQueue>,
     mut input_q: Query<&mut EditableText, With<ConsoleInput>>,
+    mut history_q: Query<&mut ScrollPosition, With<crate::ui::ConsoleHistory>>,
 ) {
     if !state.open {
         // This system runs while closed so its reader stays current. Otherwise
@@ -136,7 +146,7 @@ pub(crate) fn capture_console_input(
         };
         let shift = keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight);
 
-        if ev.key_code == config.toggle_key {
+        if ev.key_code == settings.config.toggle_key {
             continue;
         }
         if input.is_composing() {
@@ -164,7 +174,7 @@ pub(crate) fn capture_console_input(
             Key::Character(c)
                 if control
                     && c.eq_ignore_ascii_case("l")
-                    && config.builtin_commands.contains(&BuiltinCommand::Clear) =>
+                    && settings.builtin_commands.contains(&BuiltinCommand::Clear) =>
             {
                 queue.push(ConsoleRequest {
                     input: "clear".into(),
@@ -176,13 +186,25 @@ pub(crate) fn capture_console_input(
                 continue;
             }
             Key::Enter => {
-                submit_console_input(&mut state, &config, &mut queue, &mut input);
+                submit_console_input(
+                    &mut state,
+                    &settings.config,
+                    &mut queue,
+                    &mut input,
+                    &mut history_q,
+                );
                 continue;
             }
             // iOS emits Return from the software keyboard as a character
             // insertion ("\\n") instead of `Key::Enter`.
             Key::Character(c) if c == "\n" || c == "\r" => {
-                submit_console_input(&mut state, &config, &mut queue, &mut input);
+                submit_console_input(
+                    &mut state,
+                    &settings.config,
+                    &mut queue,
+                    &mut input,
+                    &mut history_q,
+                );
                 continue;
             }
             Key::Tab => {
@@ -198,6 +220,10 @@ pub(crate) fn capture_console_input(
                 }
             }
             Key::ArrowUp => {
+                // The focused text widget queues its own vertical cursor move
+                // before this system receives the key. Up/Down belong to the
+                // console's completion and history navigation instead.
+                discard_vertical_cursor_moves(&mut input);
                 if state.cmd_history_index.is_none()
                     && !state.completion_items.is_empty()
                     && state.match_index > 0
@@ -231,6 +257,7 @@ pub(crate) fn capture_console_input(
                 continue;
             }
             Key::ArrowDown => {
+                discard_vertical_cursor_moves(&mut input);
                 if state.cmd_history_index.is_none() && !state.completion_items.is_empty() {
                     state.select_next_completion();
                     continue;
@@ -276,6 +303,7 @@ fn submit_console_input(
     config: &ConsoleConfig,
     queue: &mut ConsoleCommandQueue,
     input: &mut EditableText,
+    history_q: &mut Query<&mut ScrollPosition, With<crate::ui::ConsoleHistory>>,
 ) {
     let cmd = state.input.trim().to_string();
     if !cmd.is_empty() {
@@ -284,11 +312,18 @@ fn submit_console_input(
             origin: crate::CommandOrigin::LocalUi,
         });
         state.record_command(cmd, config.max_command_history);
+    } else if config.close_on_empty_submit {
+        state.open = false;
     }
     state.clear_input();
     set_editable_text(input, "", 0);
     state.clear_completions();
     state.scroll_follow = true;
+    if let Ok(mut scroll_pos) = history_q.single_mut() {
+        // Reset immediately, including when the command itself produces no
+        // output and therefore does not trigger a later history UI refresh.
+        scroll_pos.y = f32::MAX;
+    }
     state.cmd_history_index = None;
     state.cmd_history_draft.clear();
 }
@@ -296,6 +331,12 @@ fn submit_console_input(
 fn sync_history_selection(state: &mut ConsoleState, input: &mut EditableText, value: String) {
     set_editable_text(input, &value, value.len());
     state.replace_input(value);
+}
+
+fn discard_vertical_cursor_moves(input: &mut EditableText) {
+    input
+        .pending_edits
+        .retain(|edit| !matches!(edit, TextEdit::Up(_) | TextEdit::Down(_)));
 }
 
 pub(crate) fn set_editable_text(input: &mut EditableText, value: &str, cursor: usize) {
@@ -367,7 +408,7 @@ pub(crate) fn scroll_console(
     let wheel_pixels: f32 = mouse_wheel
         .read()
         .map(|ev| match ev.unit {
-            MouseScrollUnit::Line => ev.y * 20.0,
+            MouseScrollUnit::Line => ev.y * MouseScrollUnit::SCROLL_UNIT_CONVERSION_FACTOR,
             MouseScrollUnit::Pixel => ev.y,
         })
         .sum();
@@ -385,15 +426,18 @@ pub(crate) fn scroll_console(
     } else {
         0.0
     };
-    let pixels = wheel_pixels + key_pixels;
-
-    if pixels == 0.0 {
+    if wheel_pixels == 0.0 && key_pixels == 0.0 {
         return;
     }
 
     let Ok((mut scroll_pos, computed)) = history_q.single_mut() else {
         return;
     };
+
+    // `MouseWheel` and computed UI sizes are physical pixels, while
+    // `ScrollPosition` is logical pixels. Convert both so scrolling feels
+    // consistent on high-DPI displays.
+    let pixels = (wheel_pixels * computed.inverse_scale_factor + key_pixels) * CONSOLE_SCROLL_SPEED;
 
     // y = 0 → top (oldest), y = max → bottom (newest).
     // Wheel up (pixels > 0) → go toward older content → decrease offset.
@@ -402,7 +446,8 @@ pub(crate) fn scroll_console(
     // renders at the clamped bottom but never writes the clamped value back to
     // the component. Clamp against max_scroll first so the delta is applied
     // from the real bottom, not from infinity.
-    let max_scroll = (computed.content_size().y - computed.size().y).max(0.0);
+    let max_scroll =
+        (computed.content_size().y - computed.size().y).max(0.0) * computed.inverse_scale_factor;
     let current = scroll_pos.y.min(max_scroll);
     let new_y = (current - pixels).clamp(0.0, max_scroll);
     scroll_pos.y = new_y;
@@ -545,16 +590,16 @@ mod tests {
     use super::{
         capture_console_input, execute_pending_commands, queue_bound_commands, sync_console_ui,
     };
-    use crate::ui::{ConsoleAssets, ConsoleInput};
+    use crate::ui::{ConsoleAssets, ConsoleHistory, ConsoleInput};
     use crate::{
-        CommandArgs, ConsoleAliases, ConsoleAppExt, ConsoleBinds, ConsoleBuffer,
-        ConsoleCommandQueue, ConsoleConfig, ConsoleKeyBinding, ConsoleKeyModifiers, ConsoleLevel,
-        ConsoleRequest, ConsoleResult, ConsoleState,
+        BuiltinCommand, BuiltinCommands, CommandArgs, ConsoleAliases, ConsoleAppExt, ConsoleBinds,
+        ConsoleBuffer, ConsoleCommandQueue, ConsoleConfig, ConsoleKeyBinding, ConsoleKeyModifiers,
+        ConsoleLevel, ConsoleRequest, ConsoleResult, ConsoleState,
     };
     use bevy::input::ButtonState;
     use bevy::input::keyboard::{Key, KeyboardInput};
     use bevy::prelude::*;
-    use bevy::text::EditableText;
+    use bevy::text::{EditableText, TextEdit};
 
     fn echo(In(args): CommandArgs) -> String {
         args.join("|")
@@ -564,9 +609,10 @@ mod tests {
         ConsoleResult::info("all good").line(ConsoleLevel::Warn, "watch out")
     }
 
-    fn command_test_app() -> App {
+    fn command_test_app(builtins: impl Into<BuiltinCommands>) -> App {
         let mut app = App::new();
         app.insert_resource(ConsoleConfig::default())
+            .insert_resource(builtins.into())
             .insert_resource(ConsoleState::default())
             .insert_resource(ConsoleBuffer::default())
             .init_resource::<ConsoleAliases>()
@@ -601,6 +647,7 @@ mod tests {
     fn up_from_first_suggestion_browses_history_until_draft_is_restored() {
         let mut app = App::new();
         app.insert_resource(ConsoleConfig::default())
+            .insert_resource(BuiltinCommands::default())
             .insert_resource(ConsoleState {
                 open: true,
                 completion_items: vec![
@@ -645,9 +692,61 @@ mod tests {
     }
 
     #[test]
+    fn completion_navigation_does_not_move_the_text_cursor() {
+        let mut app = App::new();
+        app.insert_resource(ConsoleConfig::default())
+            .insert_resource(BuiltinCommands::default())
+            .insert_resource(ConsoleState {
+                open: true,
+                input: "ec".into(),
+                completion_items: vec![
+                    crate::CompletionItem::new("echo", 0..2),
+                    crate::CompletionItem::new("exit", 0..2),
+                ],
+                match_index: 1,
+                ..default()
+            })
+            .insert_resource(ButtonInput::<KeyCode>::default())
+            .init_resource::<ConsoleCommandQueue>()
+            .add_message::<KeyboardInput>()
+            .add_systems(Update, capture_console_input);
+        let input = app
+            .world_mut()
+            .spawn((ConsoleInput, EditableText::new("ec")))
+            .id();
+        {
+            let mut entity = app.world_mut().entity_mut(input);
+            let mut editable = entity.get_mut::<EditableText>().unwrap();
+            editable.pending_edits.clear();
+            editable.queue_edit(TextEdit::Up(false));
+        }
+        app.world_mut().write_message(KeyboardInput {
+            key_code: KeyCode::ArrowUp,
+            logical_key: Key::ArrowUp,
+            state: ButtonState::Pressed,
+            text: None,
+            repeat: false,
+            window: Entity::PLACEHOLDER,
+        });
+
+        app.update();
+
+        assert_eq!(app.world().resource::<ConsoleState>().match_index, 0);
+        assert!(
+            app.world()
+                .entity(input)
+                .get::<EditableText>()
+                .unwrap()
+                .pending_edits
+                .is_empty()
+        );
+    }
+
+    #[test]
     fn accepting_completion_exits_history_browsing() {
         let mut app = App::new();
         app.insert_resource(ConsoleConfig::default())
+            .insert_resource(BuiltinCommands::default())
             .insert_resource(ConsoleState {
                 open: true,
                 input: "ec".into(),
@@ -682,7 +781,7 @@ mod tests {
 
     #[test]
     fn queued_commands_parse_quotes_and_write_structured_output() {
-        let mut app = command_test_app();
+        let mut app = command_test_app(BuiltinCommands::default());
         app.world_mut()
             .resource_mut::<ConsoleCommandQueue>()
             .push(ConsoleRequest::new(r#"echo "hello world" two"#));
@@ -703,7 +802,7 @@ mod tests {
 
     #[test]
     fn runtime_aliases_expand_before_command_execution() {
-        let mut app = command_test_app();
+        let mut app = command_test_app(BuiltinCommands::default());
         app.world_mut()
             .resource_mut::<ConsoleAliases>()
             .set("say_hi", "echo hello");
@@ -720,7 +819,7 @@ mod tests {
 
     #[test]
     fn alias_and_bind_set_preserve_quoted_command_arguments() {
-        let mut app = command_test_app();
+        let mut app = command_test_app([BuiltinCommand::Alias, BuiltinCommand::Bind]);
 
         app.world_mut()
             .resource_mut::<ConsoleCommandQueue>()
@@ -741,8 +840,7 @@ mod tests {
         assert_eq!(
             app.world()
                 .resource::<ConsoleBuffer>()
-                .lines()
-                .back()
+                .last_line()
                 .unwrap()
                 .text,
             "hello world"
@@ -894,6 +992,7 @@ mod tests {
     fn enter_submits_the_editable_text_value() {
         let mut app = App::new();
         app.insert_resource(ConsoleConfig::default())
+            .insert_resource(BuiltinCommands::default())
             .insert_resource(ConsoleState {
                 open: true,
                 input: "echo hello".into(),
@@ -905,6 +1004,8 @@ mod tests {
             .add_systems(Update, capture_console_input);
         app.world_mut()
             .spawn((ConsoleInput, EditableText::new("echo hello")));
+        app.world_mut()
+            .spawn((ConsoleHistory, ScrollPosition(Vec2::new(0.0, 80.0))));
         app.world_mut().write_message(KeyboardInput {
             key_code: KeyCode::Enter,
             logical_key: Key::Enter,
@@ -922,12 +1023,51 @@ mod tests {
             .unwrap();
         assert_eq!(request.request.input, "echo hello");
         assert!(app.world().resource::<ConsoleState>().input.is_empty());
+        let scroll_position = app
+            .world_mut()
+            .query_filtered::<&ScrollPosition, With<ConsoleHistory>>()
+            .single(app.world())
+            .expect("history panel should exist");
+        assert_eq!(scroll_position.y, f32::MAX);
+    }
+
+    #[test]
+    fn empty_input_closes_the_console_when_close_is_enabled() {
+        let mut app = App::new();
+        app.insert_resource(ConsoleConfig {
+            close_on_empty_submit: true,
+            ..default()
+        })
+        .insert_resource(BuiltinCommands::default())
+        .insert_resource(ConsoleState {
+            open: true,
+            ..default()
+        })
+        .insert_resource(ButtonInput::<KeyCode>::default())
+        .init_resource::<ConsoleCommandQueue>()
+        .add_message::<KeyboardInput>()
+        .add_systems(Update, capture_console_input);
+        app.world_mut().spawn((ConsoleInput, EditableText::new("")));
+        app.world_mut().write_message(KeyboardInput {
+            key_code: KeyCode::Enter,
+            logical_key: Key::Enter,
+            state: ButtonState::Pressed,
+            text: None,
+            repeat: false,
+            window: Entity::PLACEHOLDER,
+        });
+
+        app.update();
+
+        assert!(!app.world().resource::<ConsoleState>().open);
+        assert!(app.world().resource::<ConsoleCommandQueue>().is_empty());
     }
 
     #[test]
     fn ios_return_character_submits_the_editable_text_value() {
         let mut app = App::new();
         app.insert_resource(ConsoleConfig::default())
+            .insert_resource(BuiltinCommands::default())
             .insert_resource(ConsoleState {
                 open: true,
                 input: "echo hello".into(),
@@ -962,6 +1102,7 @@ mod tests {
     fn meta_backspace_clears_the_console_input() {
         let mut app = App::new();
         app.insert_resource(ConsoleConfig::default())
+            .insert_resource(BuiltinCommands::default())
             .insert_resource(ConsoleState {
                 open: true,
                 input: "echo hello".into(),
@@ -1006,6 +1147,7 @@ mod tests {
     fn closed_console_drains_keyboard_input_before_opening() {
         let mut app = App::new();
         app.insert_resource(ConsoleConfig::default())
+            .insert_resource(BuiltinCommands::default())
             .insert_resource(ConsoleState::default())
             .insert_resource(ButtonInput::<KeyCode>::default())
             .init_resource::<ConsoleCommandQueue>()

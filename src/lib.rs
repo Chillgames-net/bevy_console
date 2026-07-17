@@ -65,7 +65,7 @@ mod persistence;
 pub mod config;
 
 pub use args::Args;
-pub use config::{BuiltinCommand, ConsoleConfig};
+pub use config::{BuiltinCommand, BuiltinCommands, ConsoleConfig};
 pub use logging::{ConsoleLogCapture, console_log_layer};
 pub use model::{
     ArgumentKind, ArgumentSpec, CommandOrigin, CommandSpec, CompletionItem, CompletionRequest,
@@ -274,11 +274,29 @@ pub fn console_closed(state: Option<Res<ConsoleState>>) -> bool {
 ///         toggle_key: KeyCode::F1,
 ///         ..default()
 ///     },
+///     ..default()
 /// });
 /// ```
 #[derive(Default)]
 pub struct ChillConsole {
     pub config: ConsoleConfig,
+    /// Built-in commands registered by the plugin. Defaults to `help` and
+    /// `clear`.
+    pub builtin_commands: BuiltinCommands,
+}
+
+impl ChillConsole {
+    /// Replaces the enabled built-in commands.
+    ///
+    /// ```
+    /// # use chill_bevy_console::{BuiltinCommand, ChillConsole};
+    /// let plugin = ChillConsole::default()
+    ///     .with_builtin_commands([BuiltinCommand::Help, BuiltinCommand::Alias]);
+    /// ```
+    pub fn with_builtin_commands(mut self, commands: impl Into<BuiltinCommands>) -> Self {
+        self.builtin_commands = commands.into();
+        self
+    }
 }
 
 impl Plugin for ChillConsole {
@@ -317,6 +335,7 @@ impl Plugin for ChillConsole {
         );
 
         app.insert_resource(self.config.clone())
+            .insert_resource(self.builtin_commands.clone())
             .init_resource::<ConsoleRegistry>()
             .init_resource::<ConsoleAliases>()
             .init_resource::<ConsoleBinds>()
