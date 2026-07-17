@@ -88,6 +88,12 @@ or argument candidate; Up/Down selects candidates or command history. When
 there are more candidates than `ConsoleConfig::max_suggestions`, navigation
 continues through additional suggestion pages.
 
+## Console controls
+
+Press Enter to run the current command. Tab accepts the selected completion,
+and Up/Down navigate completions or command history. On touch devices, tap a
+completion to accept it; swipe up with two fingers to dismiss the console.
+
 ## Resource properties
 
 Enable the opt-in `resource-properties` feature to expose selected fields on a

@@ -1,11 +1,14 @@
 use crate::config::ConsoleConfig;
+use crate::input::set_editable_text;
 use crate::state::ConsoleState;
 use crate::{ConsoleBuffer, ConsoleLevel};
 use bevy::input_focus::AutoFocus;
+use bevy::picking::pointer::PointerId;
+use bevy::picking::prelude::{Click, Drag, DragEnd, Pointer, PointerButton};
 use bevy::prelude::*;
-use bevy::text::{EditableText, TextCursorStyle, TextLayoutInfo};
+use bevy::text::{EditableText, EditableTextFilter, TextCursorStyle, TextLayoutInfo};
 use bevy::ui::widget::TextScroll;
-use std::collections::VecDeque;
+use std::collections::{HashSet, VecDeque};
 
 // ── Assets ────────────────────────────────────────────────────────────────────
 
@@ -52,6 +55,14 @@ pub(crate) struct ConsoleInputGhost;
 #[derive(Component, Default, Clone)]
 pub(crate) struct ConsoleDropdown;
 
+/// The index of a completion rendered in the current suggestion page.
+#[derive(Component, Clone, Copy)]
+struct ConsoleCompletion(usize);
+
+/// Touches that have crossed the upward swipe threshold in the current gesture.
+#[derive(Component, Default)]
+struct ConsoleSwipeDismiss(HashSet<PointerId>);
+
 #[derive(Default)]
 pub(crate) struct RenderedHistory {
     entity: Option<Entity>,
@@ -93,6 +104,7 @@ pub(crate) fn spawn_console_ui(
     commands
         .spawn((
             DevConsoleOverlay,
+            ConsoleSwipeDismiss::default(),
             Node {
                 position_type: PositionType::Absolute,
                 top: Val::Px(0.0),
@@ -103,6 +115,8 @@ pub(crate) fn spawn_console_ui(
             },
             ZIndex(config.z_index),
         ))
+        .observe(dismiss_console_on_two_finger_swipe_up)
+        .observe(clear_swipe_dismiss_touch)
         .with_children(|parent| {
             parent.spawn((
                 ConsoleHistory,
@@ -151,6 +165,10 @@ pub(crate) fn spawn_console_ui(
                             input_area.spawn((
                                 ConsoleInput,
                                 EditableText::new(initial_input),
+                                // Mobile keyboards can commit their return key through IME
+                                // rather than KeyboardInput. Keep the console strictly
+                                // single-line so that commit cannot leave a stray newline.
+                                EditableTextFilter::new(|c| c != '\n' && c != '\r'),
                                 TextCursorStyle {
                                     color: config.input_text_color,
                                     selection_color: config.input_border_color,
@@ -304,30 +322,33 @@ pub(crate) fn update_console_ui(
                     } else {
                         format!("{} - {}", item.label, item.detail)
                     };
-                    parent.spawn((
-                        Node {
-                            padding: UiRect::axes(
-                                Val::Px(config.dropdown_padding_h),
-                                Val::Px(config.dropdown_padding_v),
-                            ),
-                            width: Val::Percent(100.0),
-                            border: UiRect::top(Val::Px(1.0)),
-                            ..default()
-                        },
-                        BackgroundColor(if selected {
-                            config.dropdown_highlight_bg
-                        } else {
-                            Color::srgba(0.0, 0.0, 0.0, 0.0)
-                        }),
-                        BorderColor::all(config.dropdown_item_divider_color),
-                        Text::new(label),
-                        console_text_font(&assets.font, config.dropdown_font_size),
-                        TextColor(if selected {
-                            config.dropdown_highlight_text_color
-                        } else {
-                            config.dropdown_text_color
-                        }),
-                    ));
+                    parent
+                        .spawn((
+                            ConsoleCompletion(i),
+                            Node {
+                                padding: UiRect::axes(
+                                    Val::Px(config.dropdown_padding_h),
+                                    Val::Px(config.dropdown_padding_v),
+                                ),
+                                width: Val::Percent(100.0),
+                                border: UiRect::top(Val::Px(1.0)),
+                                ..default()
+                            },
+                            BackgroundColor(if selected {
+                                config.dropdown_highlight_bg
+                            } else {
+                                Color::srgba(0.0, 0.0, 0.0, 0.0)
+                            }),
+                            BorderColor::all(config.dropdown_item_divider_color),
+                            Text::new(label),
+                            console_text_font(&assets.font, config.dropdown_font_size),
+                            TextColor(if selected {
+                                config.dropdown_highlight_text_color
+                            } else {
+                                config.dropdown_text_color
+                            }),
+                        ))
+                        .observe(accept_completion_on_click);
                 }
 
                 if state.completion_items.len() > config.max_suggestions {
@@ -355,6 +376,73 @@ pub(crate) fn update_console_ui(
             });
         }
         rendered_dropdown.update(dropdown, &state);
+    }
+}
+
+/// Closes the console after two touches make a deliberate upward swipe together.
+fn dismiss_console_on_two_finger_swipe_up(
+    mut drag: On<Pointer<Drag>>,
+    mut swipe_q: Query<&mut ConsoleSwipeDismiss>,
+    mut state: ResMut<ConsoleState>,
+) {
+    const SWIPE_DISMISS_DISTANCE: f32 = 100.0;
+
+    if !drag.pointer_id.is_touch()
+        || drag.button != PointerButton::Primary
+        || drag.distance.y > -SWIPE_DISMISS_DISTANCE
+        || drag.distance.y.abs() < drag.distance.x.abs()
+    {
+        return;
+    }
+
+    let Ok(mut swipe) = swipe_q.get_mut(drag.event_target()) else {
+        return;
+    };
+    swipe.0.insert(drag.pointer_id);
+    if swipe.0.len() < 2 {
+        return;
+    }
+
+    state.open = false;
+    drag.propagate(false);
+}
+
+/// A completed drag must not count toward a later two-finger gesture.
+fn clear_swipe_dismiss_touch(
+    drag_end: On<Pointer<DragEnd>>,
+    mut swipe_q: Query<&mut ConsoleSwipeDismiss>,
+) {
+    if let Ok(mut swipe) = swipe_q.get_mut(drag_end.event_target()) {
+        swipe.0.remove(&drag_end.pointer_id);
+    }
+}
+
+/// Accepts a completion for either mouse clicks or touch taps.
+fn accept_completion_on_click(
+    mut click: On<Pointer<Click>>,
+    completions: Query<&ConsoleCompletion>,
+    mut state: ResMut<ConsoleState>,
+    mut input_q: Query<&mut EditableText, With<ConsoleInput>>,
+) {
+    let Ok(completion) = completions.get(click.entity) else {
+        return;
+    };
+    let Ok(mut input) = input_q.single_mut() else {
+        return;
+    };
+
+    // The rows are rebuilt when completion data changes. Ignore a late tap
+    // delivered for a stale row rather than accepting a different suggestion.
+    if completion.0 >= state.completion_items.len() {
+        return;
+    }
+
+    state.match_index = completion.0;
+    if let Some(cursor) = state.apply_selected_completion() {
+        state.cmd_history_index = None;
+        state.cmd_history_draft.clear();
+        set_editable_text(&mut input, &state.input, cursor);
+        click.propagate(false);
     }
 }
 

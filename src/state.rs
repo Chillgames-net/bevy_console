@@ -76,6 +76,15 @@ impl ConsoleState {
         self.command_history_revision = self.command_history_revision.wrapping_add(1);
     }
 
+    /// Clears command recall and marks persisted history stale.
+    #[cfg(feature = "persistent-history")]
+    pub(crate) fn clear_command_history(&mut self) {
+        self.cmd_history.clear();
+        self.cmd_history_index = None;
+        self.cmd_history_draft.clear();
+        self.command_history_revision = self.command_history_revision.wrapping_add(1);
+    }
+
     #[cfg(all(feature = "persistent-history", not(target_arch = "wasm32")))]
     pub(crate) fn restore_command_history(&mut self, commands: Vec<String>, limit: usize) {
         let keep_from = commands.len().saturating_sub(limit);

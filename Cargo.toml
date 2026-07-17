@@ -50,6 +50,7 @@ bevy = { version = "0.19", default-features = false, features = [
     "mouse",
     "bevy_log",
     "bevy_ui_widgets",
+    "ui_picking",
     "system_clipboard",
 ] }
 chill_bevy_console_derive = { version = "0.3.0", path = "derive", optional = true }

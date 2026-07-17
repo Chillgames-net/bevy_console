@@ -176,20 +176,13 @@ pub(crate) fn capture_console_input(
                 continue;
             }
             Key::Enter => {
-                let cmd = state.input.trim().to_string();
-                if !cmd.is_empty() {
-                    queue.push(ConsoleRequest {
-                        input: cmd.clone(),
-                        origin: crate::CommandOrigin::LocalUi,
-                    });
-                    state.record_command(cmd, config.max_command_history);
-                }
-                state.clear_input();
-                set_editable_text(&mut input, "", 0);
-                state.clear_completions();
-                state.scroll_follow = true;
-                state.cmd_history_index = None;
-                state.cmd_history_draft.clear();
+                submit_console_input(&mut state, &config, &mut queue, &mut input);
+                continue;
+            }
+            // iOS emits Return from the software keyboard as a character
+            // insertion ("\\n") instead of `Key::Enter`.
+            Key::Character(c) if c == "\n" || c == "\r" => {
+                submit_console_input(&mut state, &config, &mut queue, &mut input);
                 continue;
             }
             Key::Tab => {
@@ -278,12 +271,34 @@ pub(crate) fn capture_console_input(
     }
 }
 
+fn submit_console_input(
+    state: &mut ConsoleState,
+    config: &ConsoleConfig,
+    queue: &mut ConsoleCommandQueue,
+    input: &mut EditableText,
+) {
+    let cmd = state.input.trim().to_string();
+    if !cmd.is_empty() {
+        queue.push(ConsoleRequest {
+            input: cmd.clone(),
+            origin: crate::CommandOrigin::LocalUi,
+        });
+        state.record_command(cmd, config.max_command_history);
+    }
+    state.clear_input();
+    set_editable_text(input, "", 0);
+    state.clear_completions();
+    state.scroll_follow = true;
+    state.cmd_history_index = None;
+    state.cmd_history_draft.clear();
+}
+
 fn sync_history_selection(state: &mut ConsoleState, input: &mut EditableText, value: String) {
     set_editable_text(input, &value, value.len());
     state.replace_input(value);
 }
 
-fn set_editable_text(input: &mut EditableText, value: &str, cursor: usize) {
+pub(crate) fn set_editable_text(input: &mut EditableText, value: &str, cursor: usize) {
     input.clear();
     input.editor_mut().set_text(value);
     let mut cursor = cursor.min(value.len());
@@ -895,6 +910,40 @@ mod tests {
             logical_key: Key::Enter,
             state: ButtonState::Pressed,
             text: None,
+            repeat: false,
+            window: Entity::PLACEHOLDER,
+        });
+
+        app.update();
+        let request = app
+            .world_mut()
+            .resource_mut::<ConsoleCommandQueue>()
+            .pop_front()
+            .unwrap();
+        assert_eq!(request.request.input, "echo hello");
+        assert!(app.world().resource::<ConsoleState>().input.is_empty());
+    }
+
+    #[test]
+    fn ios_return_character_submits_the_editable_text_value() {
+        let mut app = App::new();
+        app.insert_resource(ConsoleConfig::default())
+            .insert_resource(ConsoleState {
+                open: true,
+                input: "echo hello".into(),
+                ..default()
+            })
+            .insert_resource(ButtonInput::<KeyCode>::default())
+            .init_resource::<ConsoleCommandQueue>()
+            .add_message::<KeyboardInput>()
+            .add_systems(Update, capture_console_input);
+        app.world_mut()
+            .spawn((ConsoleInput, EditableText::new("echo hello")));
+        app.world_mut().write_message(KeyboardInput {
+            key_code: KeyCode::Enter,
+            logical_key: Key::Character("\n".into()),
+            state: ButtonState::Pressed,
+            text: Some("\n".into()),
             repeat: false,
             window: Entity::PLACEHOLDER,
         });
