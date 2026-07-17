@@ -15,8 +15,8 @@ pub fn plugin(app: &mut App) {
     if enabled.contains(&BuiltinCommand::Clear) {
         app.add_console_command_spec(
             CommandSpec::new("clear")
-            .help("clear - clear the console output")
-            .summary("Clear the console output"),
+                .help("clear - clear the console output")
+                .summary("Clear the console output"),
             clear_cmd,
         );
     }
