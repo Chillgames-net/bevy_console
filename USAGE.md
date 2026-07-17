@@ -212,7 +212,6 @@ Every visual element is configurable via `ConsoleConfig`:
         z_index: 1000,
         ..default()
     },
-    ..default()
 })
 ```
 
@@ -227,32 +226,22 @@ directly, or as a starting point with struct-update syntax:
         toggle_key: KeyCode::F1,
         ..ConsoleConfig::chillgames() // also: matrix(), source(), simple()
     },
-    ..default()
 })
 ```
 
 ### Selecting built-in commands
 
-By default, only `help` and `clear` are enabled. Use
-`BuiltinCommands::default()` explicitly for that set, or
-`BuiltinCommands::all()` to enable every built-in command. To choose a custom
-set, pass it to `with_builtin_commands`:
+All built-in commands are enabled by default. To expose only the commands your
+game needs, set `ConsoleConfig::builtin_commands` to a set of
+`BuiltinCommand` values:
 
 ```rust
-use chill_bevy_console::{BuiltinCommand, BuiltinCommands, ChillConsole, ConsoleConfig};
+use chill_bevy_console::{BuiltinCommand, ConsoleConfig};
 
-let plugin = ChillConsole::default()
-    .with_builtin_commands(BuiltinCommands::all());
-
-let plugin = ChillConsole::default()
-    .with_builtin_commands([BuiltinCommand::Help, BuiltinCommand::Alias]);
-
-// Empty-submit closing is behavior rather than command registration.
-let plugin = ChillConsole {
-    config: ConsoleConfig {
-        close_on_empty_submit: true,
-        ..default()
-    },
+let config = ConsoleConfig {
+    builtin_commands: [BuiltinCommand::Help, BuiltinCommand::Alias]
+        .into_iter()
+        .collect(),
     ..default()
 };
 ```
@@ -291,7 +280,6 @@ disable persistence per-app via
         history_file: Some("/tmp/my_game_history.txt".into()),
         ..default()
     },
-    ..default()
 })
 ```
 

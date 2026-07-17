@@ -17,7 +17,6 @@ fn main() {
                 history_file: Some("console_history.txt".into()),
                 ..default()
             },
-            ..default()
         })
         .add_console_command("say", "say <text> - echo text", say_cmd)
         .add_systems(Startup, setup)

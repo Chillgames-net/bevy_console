@@ -10,8 +10,8 @@
 
 use bevy::prelude::*;
 use chill_bevy_console::{
-    ArgumentSpec, BuiltinCommand, ChillConsole, CommandArgs, CommandSpec, CompletionItem,
-    CompletionRequest, ConsoleAppExt, ConsoleResource,
+    ArgumentSpec, ChillConsole, CommandArgs, CommandSpec, CompletionItem, CompletionRequest,
+    ConsoleAppExt, ConsoleResource,
 };
 
 #[derive(Resource)]
@@ -31,7 +31,7 @@ fn main() {
         .insert_resource(DebugSettings {
             draw_colliders: false,
         })
-        .add_plugins(ChillConsole::default().with_builtin_commands([BuiltinCommand::Res]))
+        .add_plugins(ChillConsole::default())
         .add_console_resource::<DebugSettings>()
         .add_console_command_spec(
             CommandSpec::new("map")

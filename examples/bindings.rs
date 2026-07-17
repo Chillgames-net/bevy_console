@@ -18,8 +18,8 @@
 
 use bevy::prelude::*;
 use chill_bevy_console::{
-    BuiltinCommand, ChillConsole, CommandArgs, ConsoleAppExt, ConsoleBinds, ConsoleKeyBinding,
-    ConsoleKeyModifiers,
+    BuiltinCommand, ChillConsole, CommandArgs, ConsoleAppExt, ConsoleBinds, ConsoleConfig,
+    ConsoleKeyBinding, ConsoleKeyModifiers,
 };
 
 #[derive(Resource, Default)]
@@ -29,10 +29,19 @@ fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
         .init_resource::<Score>()
-        .add_plugins(
-            ChillConsole::default()
-                .with_builtin_commands([BuiltinCommand::Alias, BuiltinCommand::Bind]),
-        )
+        .add_plugins(ChillConsole {
+            config: ConsoleConfig {
+                builtin_commands: [
+                    BuiltinCommand::Help,
+                    BuiltinCommand::Clear,
+                    BuiltinCommand::Alias,
+                    BuiltinCommand::Bind,
+                ]
+                .into_iter()
+                .collect(),
+                ..default()
+            },
+        })
         .add_console_command(
             "add_score",
             "add_score <amount> - increase the score",

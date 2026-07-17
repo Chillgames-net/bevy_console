@@ -479,12 +479,6 @@ impl ConsoleBuffer {
     pub fn lines(&self) -> &VecDeque<ConsoleLine> {
         &self.lines
     }
-
-    /// Returns the most recently appended output line, if any.
-    pub fn last_line(&self) -> Option<&ConsoleLine> {
-        self.lines.back()
-    }
-
     pub fn clear(&mut self) {
         self.lines.clear();
     }

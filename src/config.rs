@@ -5,9 +5,8 @@ use std::path::PathBuf;
 
 /// A command provided by the console plugin rather than the host application.
 ///
-/// [`crate::ChillConsole::builtin_commands`] controls which of these commands
-/// are registered. By default, only [`Self::Help`] and [`Self::Clear`] are
-/// enabled.
+/// [`ConsoleConfig::builtin_commands`] controls which of these commands are
+/// registered. All built-in commands are enabled by default.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum BuiltinCommand {
     Clear,
@@ -18,59 +17,19 @@ pub enum BuiltinCommand {
     Res,
 }
 
-/// The set of built-in console commands to register.
-///
-/// [`Self::default`] enables `help` and `clear`. Use
-/// [`Self::all`] to opt in to every built-in command.
-#[derive(Resource, Debug, Clone, PartialEq, Eq)]
-pub struct BuiltinCommands(BTreeSet<BuiltinCommand>);
-
-impl BuiltinCommands {
-    /// Returns a set containing every built-in command.
-    pub fn all() -> Self {
-        Self::from([
-            BuiltinCommand::Clear,
-            BuiltinCommand::Help,
-            BuiltinCommand::Alias,
-            BuiltinCommand::Bind,
-            #[cfg(feature = "resource-properties")]
-            BuiltinCommand::Res,
-        ])
-    }
-}
-
-impl Default for BuiltinCommands {
-    fn default() -> Self {
-        Self::from([BuiltinCommand::Help, BuiltinCommand::Clear])
-    }
-}
-
-impl<T: IntoIterator<Item = BuiltinCommand>> From<T> for BuiltinCommands {
-    fn from(iter: T) -> Self {
-        Self(iter.into_iter().collect())
-    }
-}
-
-impl FromIterator<BuiltinCommand> for BuiltinCommands {
-    fn from_iter<T: IntoIterator<Item = BuiltinCommand>>(iter: T) -> Self {
-        Self::from(iter)
-    }
-}
-
-impl std::ops::Deref for BuiltinCommands {
-    type Target = BTreeSet<BuiltinCommand>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
 impl BuiltinCommand {
-    /// Returns every built-in command.
-    ///
-    /// Prefer [`BuiltinCommands::all`] for new code.
-    pub fn all() -> BuiltinCommands {
-        BuiltinCommands::all()
+    /// Returns a set containing every built-in command.
+    pub fn all() -> BTreeSet<Self> {
+        [
+            Self::Clear,
+            Self::Help,
+            Self::Alias,
+            Self::Bind,
+            #[cfg(feature = "resource-properties")]
+            Self::Res,
+        ]
+        .into_iter()
+        .collect()
     }
 }
 
@@ -89,7 +48,6 @@ impl BuiltinCommand {
 ///         toggle_key: KeyCode::F1,
 ///         ..default()
 ///     },
-///     ..default()
 /// });
 /// ```
 #[derive(Resource, Clone)]
@@ -150,9 +108,6 @@ pub struct ConsoleConfig {
     pub dropdown_padding_h: f32,
     /// Vertical padding (px) inside each dropdown item.
     pub dropdown_padding_v: f32,
-    /// Maximum number of wrapped lines in each dropdown item. Set to `0` for
-    /// no limit. Defaults to `2`.
-    pub dropdown_item_max_lines: usize,
     /// Text color for unselected dropdown items.
     pub dropdown_text_color: Color,
     /// Background color for the currently highlighted dropdown item.
@@ -163,9 +118,20 @@ pub struct ConsoleConfig {
     // ── Behavior ──────────────────────────────────────────────────────────────
     /// The key that toggles the console open and closed. Defaults to backtick.
     pub toggle_key: KeyCode,
-    /// Close the console when Enter is submitted with no input. Defaults to
-    /// `false`.
-    pub close_on_empty_submit: bool,
+    /// Built-in commands to register. Defaults to every [`BuiltinCommand`].
+    ///
+    /// For example, a console with just help and aliases can use:
+    ///
+    /// ```
+    /// # use chill_bevy_console::{BuiltinCommand, ConsoleConfig};
+    /// let config = ConsoleConfig {
+    ///     builtin_commands: [BuiltinCommand::Help, BuiltinCommand::Alias]
+    ///         .into_iter()
+    ///         .collect(),
+    ///     ..ConsoleConfig::default()
+    /// };
+    /// ```
+    pub builtin_commands: BTreeSet<BuiltinCommand>,
     /// Maximum structured output lines kept in memory.
     pub max_history_lines: usize,
     /// Maximum submitted commands kept for Up/Down recall.
@@ -273,13 +239,12 @@ impl Default for ConsoleConfig {
             dropdown_item_divider_color: Color::srgba(1.0, 1.0, 1.0, 0.06),
             dropdown_padding_h: 10.0,
             dropdown_padding_v: 5.0,
-            dropdown_item_max_lines: 2,
             dropdown_text_color: Color::srgb(0.60, 0.60, 0.60),
             dropdown_highlight_bg: Color::srgba(1.0, 1.0, 1.0, 0.10),
             dropdown_highlight_text_color: Color::WHITE,
 
             toggle_key: KeyCode::Backquote,
-            close_on_empty_submit: false,
+            builtin_commands: BuiltinCommand::all(),
             max_history_lines: 2_000,
             max_command_history: 500,
             max_suggestions: 5,

@@ -1,13 +1,17 @@
 use crate::{
     ArgumentSpec, BuiltinCommand, CommandArgs, CommandSpec, CompletionItem, CompletionRequest,
-    ConsoleAliases, ConsoleAppExt, ConsoleBinds, ConsoleBuffer, ConsoleKeyBinding,
+    ConsoleAliases, ConsoleAppExt, ConsoleBinds, ConsoleBuffer, ConsoleConfig, ConsoleKeyBinding,
     ConsoleKeyModifiers, ConsoleRegistry, ConsoleResult, completion::runtime_command_completions,
 };
 use bevy::prelude::*;
 use bevy::reflect::{FromReflect, Typed, enums::DynamicEnum};
 
 pub fn plugin(app: &mut App) {
-    let enabled = app.world().resource::<crate::BuiltinCommands>().clone();
+    let enabled = app
+        .world()
+        .resource::<ConsoleConfig>()
+        .builtin_commands
+        .clone();
     if enabled.contains(&BuiltinCommand::Clear) {
         app.add_console_command_spec(
             CommandSpec::new("clear")
@@ -381,8 +385,8 @@ fn parse_keycode(name: &str) -> Option<KeyCode> {
 mod tests {
     use super::{help_cmd, parse_key_binding, plugin};
     use crate::{
-        Args, BuiltinCommand, BuiltinCommands, CommandArgs, CommandSpec, ConsoleAliases,
-        ConsoleBinds, ConsoleBuffer, ConsoleCommandExecuted, ConsoleCommandQueue, ConsoleConfig,
+        Args, BuiltinCommand, CommandArgs, CommandSpec, ConsoleAliases, ConsoleBinds,
+        ConsoleBuffer, ConsoleCommandExecuted, ConsoleCommandQueue, ConsoleConfig,
         ConsoleKeyBinding, ConsoleKeyModifiers, ConsoleLevel, ConsoleRegistry, ConsoleRequest,
         ConsoleResult, ConsoleState,
     };
@@ -433,10 +437,6 @@ mod tests {
     fn runtime_aliases_cannot_shadow_registered_commands() {
         let mut app = App::new();
         app.insert_resource(ConsoleConfig::default())
-            .insert_resource(BuiltinCommands::from([
-                BuiltinCommand::Alias,
-                BuiltinCommand::Clear,
-            ]))
             .insert_resource(ConsoleState::default())
             .insert_resource(ConsoleBuffer::default())
             .init_resource::<ConsoleAliases>()
@@ -473,7 +473,6 @@ mod tests {
     fn alias_operations_manage_runtime_aliases() {
         let mut app = App::new();
         app.insert_resource(ConsoleConfig::default())
-            .insert_resource(BuiltinCommands::from([BuiltinCommand::Alias]))
             .insert_resource(ConsoleState::default())
             .insert_resource(ConsoleBuffer::default())
             .init_resource::<ConsoleAliases>()
@@ -498,7 +497,8 @@ mod tests {
         assert_eq!(
             app.world()
                 .resource::<ConsoleBuffer>()
-                .last_line()
+                .lines()
+                .back()
                 .unwrap()
                 .text,
             "quicksave = save slot_1"
@@ -519,36 +519,16 @@ mod tests {
     #[test]
     fn builtins_can_be_selected_individually() {
         let mut app = App::new();
-        app.insert_resource(ConsoleConfig::default())
-            .insert_resource(BuiltinCommands::from([BuiltinCommand::Help]))
-            .add_plugins(plugin);
+        app.insert_resource(ConsoleConfig {
+            builtin_commands: [BuiltinCommand::Help].into_iter().collect(),
+            ..default()
+        })
+        .add_plugins(plugin);
 
         let registry = app.world().resource::<ConsoleRegistry>();
         assert!(registry.get("help").is_some());
         assert!(registry.get("clear").is_none());
         assert!(registry.get("get").is_none());
-    }
-
-    #[test]
-    fn default_builtins_are_help_and_clear() {
-        let commands = BuiltinCommands::default();
-
-        assert!(commands.contains(&BuiltinCommand::Help));
-        assert!(commands.contains(&BuiltinCommand::Clear));
-        assert!(!commands.contains(&BuiltinCommand::Alias));
-        assert!(!commands.contains(&BuiltinCommand::Bind));
-    }
-
-    #[test]
-    fn builtins_can_be_created_from_an_iterator() {
-        let commands = BuiltinCommands::from(
-            [BuiltinCommand::Help, BuiltinCommand::Alias]
-                .into_iter()
-                .filter(|command| *command != BuiltinCommand::Help),
-        );
-
-        assert!(!commands.contains(&BuiltinCommand::Help));
-        assert!(commands.contains(&BuiltinCommand::Alias));
     }
 
     #[cfg(feature = "persistent-history")]
@@ -578,10 +558,9 @@ mod tests {
 
     #[cfg(not(feature = "resource-properties"))]
     #[test]
-    fn commands_plugin_does_not_register_property_commands_without_feature() {
+    fn default_build_does_not_register_property_commands() {
         let mut app = App::new();
         app.insert_resource(ConsoleConfig::default())
-            .insert_resource(BuiltinCommands::default())
             .add_plugins(plugin);
 
         let registry = app.world().resource::<ConsoleRegistry>();
@@ -595,7 +574,6 @@ mod tests {
     fn bind_operations_manage_runtime_key_bindings() {
         let mut app = App::new();
         app.insert_resource(ConsoleConfig::default())
-            .insert_resource(BuiltinCommands::from([BuiltinCommand::Bind]))
             .insert_resource(ConsoleState::default())
             .insert_resource(ConsoleBuffer::default())
             .init_resource::<ConsoleAliases>()
@@ -637,7 +615,8 @@ mod tests {
         assert_eq!(
             app.world()
                 .resource::<ConsoleBuffer>()
-                .last_line()
+                .lines()
+                .back()
                 .unwrap()
                 .text,
             "ctrl+KeyW = echo save"
