@@ -552,16 +552,14 @@ pub(crate) fn execute_pending_commands(world: &mut World) {
     if let Some(history_index) = world
         .resource_mut::<ConsoleState>()
         .take_pending_history_index(&cmd_str)
-    {
-        if let Some(line_id) = world
+        && let Some(line_id) = world
             .resource::<ConsoleBuffer>()
             .last_line()
             .map(|line| line.id)
-        {
-            world
-                .resource_mut::<ConsoleState>()
-                .set_history_line_id(history_index, line_id);
-        }
+    {
+        world
+            .resource_mut::<ConsoleState>()
+            .set_history_line_id(history_index, line_id);
     }
 
     let result = match executor {
