@@ -3,11 +3,12 @@ use crate::input::set_editable_text;
 use crate::state::ConsoleState;
 use crate::{ConsoleBuffer, ConsoleLevel};
 use bevy::input_focus::AutoFocus;
-use bevy::picking::prelude::{Click, Drag, Pointer, PointerButton};
+use bevy::picking::pointer::PointerId;
+use bevy::picking::prelude::{Click, Drag, DragEnd, Pointer, PointerButton};
 use bevy::prelude::*;
 use bevy::text::{EditableText, EditableTextFilter, TextCursorStyle, TextLayoutInfo};
 use bevy::ui::widget::TextScroll;
-use std::collections::VecDeque;
+use std::collections::{HashSet, VecDeque};
 
 // ── Assets ────────────────────────────────────────────────────────────────────
 
@@ -58,6 +59,10 @@ pub(crate) struct ConsoleDropdown;
 #[derive(Component, Clone, Copy)]
 struct ConsoleCompletion(usize);
 
+/// Touches that have crossed the upward swipe threshold in the current gesture.
+#[derive(Component, Default)]
+struct ConsoleSwipeDismiss(HashSet<PointerId>);
+
 #[derive(Default)]
 pub(crate) struct RenderedHistory {
     entity: Option<Entity>,
@@ -99,6 +104,7 @@ pub(crate) fn spawn_console_ui(
     commands
         .spawn((
             DevConsoleOverlay,
+            ConsoleSwipeDismiss::default(),
             Node {
                 position_type: PositionType::Absolute,
                 top: Val::Px(0.0),
@@ -109,7 +115,8 @@ pub(crate) fn spawn_console_ui(
             },
             ZIndex(config.z_index),
         ))
-        .observe(dismiss_console_on_swipe_up)
+        .observe(dismiss_console_on_two_finger_swipe_up)
+        .observe(clear_swipe_dismiss_touch)
         .with_children(|parent| {
             parent.spawn((
                 ConsoleHistory,
@@ -372,19 +379,42 @@ pub(crate) fn update_console_ui(
     }
 }
 
-/// Closes the console after a deliberate, mostly vertical upward swipe.
-fn dismiss_console_on_swipe_up(mut drag: On<Pointer<Drag>>, mut state: ResMut<ConsoleState>) {
-    const SWIPE_DISMISS_DISTANCE: f32 = 80.0;
+/// Closes the console after two touches make a deliberate upward swipe together.
+fn dismiss_console_on_two_finger_swipe_up(
+    mut drag: On<Pointer<Drag>>,
+    mut swipe_q: Query<&mut ConsoleSwipeDismiss>,
+    mut state: ResMut<ConsoleState>,
+) {
+    const SWIPE_DISMISS_DISTANCE: f32 = 100.0;
 
-    if drag.button != PointerButton::Primary
+    if !drag.pointer_id.is_touch()
+        || drag.button != PointerButton::Primary
         || drag.distance.y > -SWIPE_DISMISS_DISTANCE
         || drag.distance.y.abs() < drag.distance.x.abs()
     {
         return;
     }
 
+    let Ok(mut swipe) = swipe_q.get_mut(drag.event_target()) else {
+        return;
+    };
+    swipe.0.insert(drag.pointer_id);
+    if swipe.0.len() < 2 {
+        return;
+    }
+
     state.open = false;
     drag.propagate(false);
+}
+
+/// A completed drag must not count toward a later two-finger gesture.
+fn clear_swipe_dismiss_touch(
+    drag_end: On<Pointer<DragEnd>>,
+    mut swipe_q: Query<&mut ConsoleSwipeDismiss>,
+) {
+    if let Ok(mut swipe) = swipe_q.get_mut(drag_end.event_target()) {
+        swipe.0.remove(&drag_end.pointer_id);
+    }
 }
 
 /// Accepts a completion for either mouse clicks or touch taps.

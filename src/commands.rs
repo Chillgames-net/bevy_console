@@ -13,18 +13,12 @@ pub fn plugin(app: &mut App) {
         .builtin_commands
         .clone();
     if enabled.contains(&BuiltinCommand::Clear) {
-        #[cfg(feature = "persistent-history")]
-        let clear_spec = CommandSpec::new("clear")
-            .help("clear [--history] - clear the console output")
-            .summary("Clear the console output, optionally including command recall history")
-            .args([
-                ArgumentSpec::new("--history").help("Also clear persisted command recall history")
-            ]);
-        #[cfg(not(feature = "persistent-history"))]
-        let clear_spec = CommandSpec::new("clear")
+        app.add_console_command_spec(
+            CommandSpec::new("clear")
             .help("clear - clear the console output")
-            .summary("Clear the console output");
-        app.add_console_command_spec(clear_spec, clear_cmd);
+            .summary("Clear the console output"),
+            clear_cmd,
+        );
     }
     if enabled.contains(&BuiltinCommand::Help) {
         app.add_console_command_spec(

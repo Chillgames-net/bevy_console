@@ -88,6 +88,12 @@ or argument candidate; Up/Down selects candidates or command history. When
 there are more candidates than `ConsoleConfig::max_suggestions`, navigation
 continues through additional suggestion pages.
 
+## Console controls
+
+Press Enter to run the current command. Tab accepts the selected completion,
+and Up/Down navigate completions or command history. On touch devices, tap a
+completion to accept it; swipe up with two fingers to dismiss the console.
+
 ## Resource properties
 
 Enable the opt-in `resource-properties` feature to expose selected fields on a
@@ -304,7 +310,7 @@ fn lock_console_for_release(mut state: ResMut<ConsoleState>) {
 | Command   | Description                     |
 |-----------|---------------------------------|
 | `help`    | List all registered commands    |
-| `clear`   | Clear the console output (`clear --history` also clears persisted command recall when `persistent-history` is enabled) |
+| `clear`   | Clear the console output        |
 | `alias` | Manage runtime aliases |
 | `bind` | Manage runtime key bindings |
 | `res` | Inspect and change resource properties (requires `resource-properties`) |
