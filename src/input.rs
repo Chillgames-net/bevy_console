@@ -819,7 +819,7 @@ mod tests {
 
     #[test]
     fn alias_and_bind_set_preserve_quoted_command_arguments() {
-        let mut app = command_test_app([BuiltinCommand::Alias, BuiltinCommand::Bind]);
+        let mut app = command_test_app(BuiltinCommand::all());
 
         app.world_mut()
             .resource_mut::<ConsoleCommandQueue>()
