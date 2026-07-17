@@ -31,6 +31,12 @@ impl Default for BuiltinCommands {
     }
 }
 
+impl BuiltinCommands {
+    pub fn all() -> Self {
+        Self::from(BuiltinCommand::all())
+    }
+}
+
 impl<T: IntoIterator<Item = BuiltinCommand>> From<T> for BuiltinCommands {
     fn from(iter: T) -> Self {
         Self(iter.into_iter().collect())
