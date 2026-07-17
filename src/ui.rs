@@ -237,6 +237,7 @@ pub(crate) fn update_console_ui(
     assets: Res<ConsoleAssets>,
     config: Res<ConsoleConfig>,
     mut history_q: Query<(Entity, &mut ScrollPosition), With<ConsoleHistory>>,
+    mut history_line_q: Query<&mut BackgroundColor>,
     input_q: Query<(&EditableText, &TextLayoutInfo, &TextScroll), With<ConsoleInput>>,
     mut ghost_q: Query<(&mut Text, &mut Node), With<ConsoleInputGhost>>,
     dropdown_q: Query<(Entity, Option<&Children>), With<ConsoleDropdown>>,
@@ -266,6 +267,15 @@ pub(crate) fn update_console_ui(
                 for line in buffer.lines().iter().skip(rendered_history.lines.len()) {
                     let entity = parent
                         .spawn((
+                            Node {
+                                width: Val::Percent(100.0),
+                                ..default()
+                            },
+                            BackgroundColor(if Some(line.id) == state.selected_history_line_id() {
+                                config.history_highlight_bg
+                            } else {
+                                Color::NONE
+                            }),
                             Text::new(line.text.clone()),
                             console_text_font(&font, config.history_font_size),
                             TextColor(history_line_color(line.level, &config)),
@@ -274,6 +284,18 @@ pub(crate) fn update_console_ui(
                     rendered_history.lines.push_back((line.id, entity));
                 }
             });
+        }
+        if state.is_changed() {
+            let selected_line_id = state.selected_history_line_id();
+            for (line_id, entity) in &rendered_history.lines {
+                if let Ok(mut background) = history_line_q.get_mut(*entity) {
+                    *background = BackgroundColor(if Some(*line_id) == selected_line_id {
+                        config.history_highlight_bg
+                    } else {
+                        Color::NONE
+                    });
+                }
+            }
         }
         if state.scroll_follow {
             scroll_pos.y = f32::MAX;
@@ -508,5 +530,56 @@ fn history_line_color(level: ConsoleLevel, config: &ConsoleConfig) -> Color {
         ConsoleLevel::Info => config.history_text_color,
         ConsoleLevel::Warn => config.history_warn_color,
         ConsoleLevel::Error => config.history_error_color,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ConsoleAssets, ConsoleHistory, update_console_ui};
+    use crate::{ConsoleBuffer, ConsoleConfig, ConsoleLevel, ConsoleLineSource, ConsoleState};
+    use bevy::prelude::*;
+    use bevy::ui::ScrollPosition;
+
+    #[test]
+    fn history_highlight_follows_the_recalled_command() {
+        let mut buffer = ConsoleBuffer::default();
+        buffer.push(ConsoleLevel::Info, ConsoleLineSource::System, "> first");
+        let first_id = buffer.last_line().unwrap().id;
+        buffer.push(ConsoleLevel::Info, ConsoleLineSource::System, "> second");
+        let second_id = buffer.last_line().unwrap().id;
+
+        let mut app = App::new();
+        app.insert_resource(ConsoleConfig::default())
+            .insert_resource(ConsoleAssets {
+                font: Handle::default(),
+            })
+            .insert_resource(ConsoleState {
+                open: true,
+                cmd_history: vec!["first".into(), "second".into()],
+                cmd_history_line_ids: vec![Some(first_id), Some(second_id)],
+                cmd_history_index: Some(1),
+                ..default()
+            })
+            .insert_resource(buffer)
+            .add_systems(Update, update_console_ui);
+        app.world_mut()
+            .spawn((ConsoleHistory, ScrollPosition::default()));
+
+        app.update();
+        assert_history_highlight(&mut app, "> second");
+
+        app.world_mut()
+            .resource_mut::<ConsoleState>()
+            .cmd_history_index = Some(0);
+        app.update();
+        assert_history_highlight(&mut app, "> first");
+    }
+
+    fn assert_history_highlight(app: &mut App, expected: &str) {
+        let highlight = app.world().resource::<ConsoleConfig>().history_highlight_bg;
+        let mut rows = app.world_mut().query::<(&Text, &BackgroundColor)>();
+        for (text, background) in rows.iter(app.world()) {
+            assert_eq!(background.0 == highlight, text.0 == expected, "{}", text.0);
+        }
     }
 }

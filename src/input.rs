@@ -549,6 +549,20 @@ pub(crate) fn execute_pending_commands(world: &mut World) {
         source.clone(),
         format!("> {cmd_str}"),
     );
+    if let Some(history_index) = world
+        .resource_mut::<ConsoleState>()
+        .take_pending_history_index(&cmd_str)
+    {
+        if let Some(line_id) = world
+            .resource::<ConsoleBuffer>()
+            .last_line()
+            .map(|line| line.id)
+        {
+            world
+                .resource_mut::<ConsoleState>()
+                .set_history_line_id(history_index, line_id);
+        }
+    }
 
     let result = match executor {
         CommandExecutor::Structured(id) => match world.run_system_with(id, args) {
@@ -798,6 +812,23 @@ mod tests {
         let lines = app.world().resource::<ConsoleBuffer>().lines();
         assert_eq!(lines[3].level, ConsoleLevel::Info);
         assert_eq!(lines[4].level, ConsoleLevel::Warn);
+    }
+
+    #[test]
+    fn executing_a_submitted_command_links_its_recall_entry_to_the_echo_row() {
+        let mut app = command_test_app(BuiltinCommands::default());
+        app.world_mut()
+            .resource_mut::<ConsoleState>()
+            .record_command("echo linked".into(), 10);
+        app.world_mut()
+            .resource_mut::<ConsoleCommandQueue>()
+            .push(ConsoleRequest::new("echo linked"));
+
+        execute_pending_commands(app.world_mut());
+
+        let echo_id = app.world().resource::<ConsoleBuffer>().lines()[0].id;
+        let state = app.world().resource::<ConsoleState>();
+        assert_eq!(state.cmd_history_line_ids, [Some(echo_id)]);
     }
 
     #[test]
