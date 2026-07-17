@@ -193,8 +193,8 @@ mod tests {
     use super::{has_dirty_completion, match_rank, refresh_completions};
     use crate::ui::ConsoleInput;
     use crate::{
-        ArgumentSpec, CommandArgs, CommandSpec, CompletionItem, CompletionRequest, ConsoleAliases,
-        ConsoleAppExt, ConsoleConfig, ConsoleRegistry, ConsoleState,
+        ArgumentSpec, BuiltinCommand, CommandArgs, CommandSpec, CompletionItem, CompletionRequest,
+        ConsoleAliases, ConsoleAppExt, ConsoleConfig, ConsoleRegistry, ConsoleState,
     };
     use bevy::prelude::*;
     use bevy::text::EditableText;
@@ -439,6 +439,7 @@ mod tests {
         let mut app = App::new();
         app.insert_resource(ConsoleState::default())
             .insert_resource(ConsoleConfig::default())
+            .insert_resource(crate::BuiltinCommands::from([BuiltinCommand::Alias]))
             .init_resource::<ConsoleAliases>();
         crate::commands::plugin(&mut app);
         app.add_console_command("save", "save - save the game", noop)

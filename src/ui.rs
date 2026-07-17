@@ -6,8 +6,8 @@ use bevy::input_focus::AutoFocus;
 use bevy::picking::pointer::PointerId;
 use bevy::picking::prelude::{Click, Drag, DragEnd, Pointer, PointerButton};
 use bevy::prelude::*;
-use bevy::text::{EditableText, EditableTextFilter, TextCursorStyle, TextLayoutInfo};
-use bevy::ui::widget::TextScroll;
+use bevy::text::{EditableText, EditableTextFilter, LineHeight, TextCursorStyle, TextLayoutInfo};
+use bevy::ui::{ComputedNode, ScrollPosition, widget::TextScroll};
 use std::collections::{HashSet, VecDeque};
 
 // ── Assets ────────────────────────────────────────────────────────────────────
@@ -19,6 +19,20 @@ pub(crate) struct ConsoleAssets {
 
 fn console_text_font(font: &Handle<Font>, font_size: f32) -> TextFont {
     TextFont::from_font_size(font_size).with_font(font.clone())
+}
+
+const DROPDOWN_LINE_HEIGHT_MULTIPLIER: f32 = 1.2;
+const DROPDOWN_ITEM_DIVIDER_HEIGHT: f32 = 1.0;
+
+fn dropdown_item_max_height(config: &ConsoleConfig) -> Val {
+    match config.dropdown_item_max_lines {
+        0 => Val::Auto,
+        lines => Val::Px(
+            config.dropdown_font_size * DROPDOWN_LINE_HEIGHT_MULTIPLIER * lines as f32
+                + config.dropdown_padding_v * 2.0
+                + DROPDOWN_ITEM_DIVIDER_HEIGHT,
+        ),
+    }
 }
 
 impl FromWorld for ConsoleAssets {
@@ -118,20 +132,22 @@ pub(crate) fn spawn_console_ui(
         .observe(dismiss_console_on_two_finger_swipe_up)
         .observe(clear_swipe_dismiss_touch)
         .with_children(|parent| {
-            parent.spawn((
-                ConsoleHistory,
-                Node {
-                    flex_direction: FlexDirection::Column,
-                    height: Val::Vh(config.history_height_vh),
-                    max_height: Val::Vh(config.history_height_vh),
-                    width: Val::Percent(100.0),
-                    overflow: Overflow::scroll_y(),
-                    padding: UiRect::all(Val::Px(config.history_padding)),
-                    ..default()
-                },
-                BackgroundColor(config.history_bg),
-                ScrollPosition::default(),
-            ));
+            parent
+                .spawn((
+                    ConsoleHistory,
+                    Node {
+                        flex_direction: FlexDirection::Column,
+                        height: Val::Vh(config.history_height_vh),
+                        max_height: Val::Vh(config.history_height_vh),
+                        width: Val::Percent(100.0),
+                        overflow: Overflow::scroll_y(),
+                        padding: UiRect::all(Val::Px(config.history_padding)),
+                        ..default()
+                    },
+                    BackgroundColor(config.history_bg),
+                    ScrollPosition::default(),
+                ))
+                .observe(scroll_console_on_touch_drag);
 
             parent
                 .spawn((
@@ -331,6 +347,9 @@ pub(crate) fn update_console_ui(
                                     Val::Px(config.dropdown_padding_v),
                                 ),
                                 width: Val::Percent(100.0),
+                                min_width: Val::Px(0.0),
+                                max_height: dropdown_item_max_height(&config),
+                                overflow: Overflow::clip(),
                                 border: UiRect::top(Val::Px(1.0)),
                                 ..default()
                             },
@@ -340,15 +359,27 @@ pub(crate) fn update_console_ui(
                                 Color::srgba(0.0, 0.0, 0.0, 0.0)
                             }),
                             BorderColor::all(config.dropdown_item_divider_color),
-                            Text::new(label),
-                            console_text_font(&assets.font, config.dropdown_font_size),
-                            TextColor(if selected {
-                                config.dropdown_highlight_text_color
-                            } else {
-                                config.dropdown_text_color
-                            }),
                         ))
-                        .observe(accept_completion_on_click);
+                        .observe(accept_completion_on_click)
+                        .with_children(|row| {
+                            row.spawn((
+                                Node {
+                                    width: Val::Percent(100.0),
+                                    min_width: Val::Px(0.0),
+                                    ..default()
+                                },
+                                Text::new(label),
+                                console_text_font(&assets.font, config.dropdown_font_size),
+                                LineHeight::Px(
+                                    config.dropdown_font_size * DROPDOWN_LINE_HEIGHT_MULTIPLIER,
+                                ),
+                                TextColor(if selected {
+                                    config.dropdown_highlight_text_color
+                                } else {
+                                    config.dropdown_text_color
+                                }),
+                            ));
+                        });
                 }
 
                 if state.completion_items.len() > config.max_suggestions {
@@ -379,13 +410,38 @@ pub(crate) fn update_console_ui(
     }
 }
 
+/// Scrolls the history panel in response to a one-finger touch drag.
+///
+/// Pointer drag coordinates are physical pixels, while `ScrollPosition` uses
+/// logical pixels, so account for the UI scale before applying the delta.
+fn scroll_console_on_touch_drag(
+    drag: On<Pointer<Drag>>,
+    mut state: ResMut<ConsoleState>,
+    mut history_q: Query<(&mut ScrollPosition, &ComputedNode), With<ConsoleHistory>>,
+) {
+    if !drag.pointer_id.is_touch() || drag.button != PointerButton::Primary {
+        return;
+    }
+
+    let Ok((mut scroll_pos, computed)) = history_q.single_mut() else {
+        return;
+    };
+
+    let max_scroll =
+        (computed.content_size().y - computed.size().y).max(0.0) * computed.inverse_scale_factor;
+    let current = scroll_pos.y.min(max_scroll);
+    let new_y = (current - drag.delta.y * computed.inverse_scale_factor).clamp(0.0, max_scroll);
+    scroll_pos.y = new_y;
+    state.scroll_follow = new_y >= max_scroll - 1.0;
+}
+
 /// Closes the console after two touches make a deliberate upward swipe together.
 fn dismiss_console_on_two_finger_swipe_up(
     mut drag: On<Pointer<Drag>>,
     mut swipe_q: Query<&mut ConsoleSwipeDismiss>,
     mut state: ResMut<ConsoleState>,
 ) {
-    const SWIPE_DISMISS_DISTANCE: f32 = 100.0;
+    const SWIPE_DISMISS_DISTANCE: f32 = 80.0;
 
     if !drag.pointer_id.is_touch()
         || drag.button != PointerButton::Primary
