@@ -16,6 +16,7 @@ fn main() {
                 toggle_key: KeyCode::F1,
                 ..ConsoleConfig::chillgames()
             },
+            ..default()
         })
         .add_systems(Startup, setup)
         .run();

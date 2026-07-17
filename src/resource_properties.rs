@@ -6,7 +6,7 @@
 
 use crate::{
     Args, ArgumentSpec, BuiltinCommand, CommandSpec, CompletionItem, CompletionRequest,
-    ConsoleAppExt, ConsoleConfig, ConsoleRegistry, ConsoleResult,
+    ConsoleAppExt, ConsoleRegistry, ConsoleResult,
 };
 use bevy::prelude::*;
 use std::collections::BTreeMap;
@@ -213,11 +213,7 @@ impl ConsoleResources {
 
 /// Registers the resource-property built-in commands and completion providers.
 pub(crate) fn plugin(app: &mut App) {
-    let enabled = app
-        .world()
-        .resource::<ConsoleConfig>()
-        .builtin_commands
-        .clone();
+    let enabled = app.world().resource::<crate::BuiltinCommands>().clone();
     app.init_resource::<ConsoleResources>();
     {
         let mut registry = app.world_mut().resource_mut::<ConsoleRegistry>();
@@ -447,7 +443,7 @@ mod tests {
     use super::*;
     use crate::{
         ConsoleAliases, ConsoleAppExt, ConsoleBuffer, ConsoleCommandExecuted, ConsoleCommandQueue,
-        ConsoleConfig, ConsoleRegistry, ConsoleRequest, ConsoleState,
+        ConsoleRegistry, ConsoleRequest, ConsoleState,
     };
 
     #[derive(Resource, super::super::ConsoleResource)]
@@ -464,12 +460,9 @@ mod tests {
     #[test]
     fn res_builtin_enables_property_commands() {
         let mut app = App::new();
-        app.insert_resource(ConsoleConfig {
-            builtin_commands: [BuiltinCommand::Res].into_iter().collect(),
-            ..default()
-        })
-        .init_resource::<ConsoleRegistry>()
-        .add_plugins(super::plugin);
+        app.insert_resource(crate::BuiltinCommands::from([BuiltinCommand::Res]))
+            .init_resource::<ConsoleRegistry>()
+            .add_plugins(super::plugin);
 
         let registry = app.world().resource::<ConsoleRegistry>();
         assert!(registry.get("get").is_none());
@@ -479,7 +472,7 @@ mod tests {
     #[test]
     fn properties_mutate_the_registered_resource() {
         let mut app = App::new();
-        app.insert_resource(ConsoleConfig::default())
+        app.insert_resource(crate::BuiltinCommands::from([BuiltinCommand::Res]))
             .insert_resource(ConsoleState::default())
             .insert_resource(ConsoleBuffer::default())
             .init_resource::<ConsoleAliases>()
@@ -506,8 +499,7 @@ mod tests {
         assert_eq!(
             app.world()
                 .resource::<ConsoleBuffer>()
-                .lines()
-                .back()
+                .last_line()
                 .unwrap()
                 .text,
             "debug.draw_colliders = false - Draw collider shapes"
