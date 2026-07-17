@@ -21,23 +21,9 @@ pub enum BuiltinCommand {
 /// The set of built-in console commands to register.
 ///
 /// [`Self::default`] enables `help` and `clear`. Use
-/// [`Self::all`] to opt in to every built-in command.
+/// [`BuiltinCommand::all`] to opt in to every built-in command.
 #[derive(Resource, Debug, Clone, PartialEq, Eq)]
 pub struct BuiltinCommands(BTreeSet<BuiltinCommand>);
-
-impl BuiltinCommands {
-    /// Returns a set containing every built-in command.
-    pub fn all() -> Self {
-        Self::from([
-            BuiltinCommand::Clear,
-            BuiltinCommand::Help,
-            BuiltinCommand::Alias,
-            BuiltinCommand::Bind,
-            #[cfg(feature = "resource-properties")]
-            BuiltinCommand::Res,
-        ])
-    }
-}
 
 impl Default for BuiltinCommands {
     fn default() -> Self {
@@ -67,10 +53,15 @@ impl std::ops::Deref for BuiltinCommands {
 
 impl BuiltinCommand {
     /// Returns every built-in command.
-    ///
-    /// Prefer [`BuiltinCommands::all`] for new code.
-    pub fn all() -> BuiltinCommands {
-        BuiltinCommands::all()
+    #[cfg(feature = "resource-properties")]
+    pub const fn all() -> [Self; 5] {
+        [Self::Clear, Self::Help, Self::Alias, Self::Bind, Self::Res]
+    }
+
+    /// Returns every built-in command.
+    #[cfg(not(feature = "resource-properties"))]
+    pub const fn all() -> [Self; 4] {
+        [Self::Clear, Self::Help, Self::Alias, Self::Bind]
     }
 }
 

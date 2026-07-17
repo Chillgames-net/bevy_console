@@ -29,10 +29,7 @@ fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
         .init_resource::<Score>()
-        .add_plugins(
-            ChillConsole::default()
-                .with_builtin_commands([BuiltinCommand::Alias, BuiltinCommand::Bind]),
-        )
+        .add_plugins(ChillConsole::default().with_builtin_commands(BuiltinCommand::all()))
         .add_console_command(
             "add_score",
             "add_score <amount> - increase the score",

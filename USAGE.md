@@ -234,15 +234,14 @@ directly, or as a starting point with struct-update syntax:
 ### Selecting built-in commands
 
 By default, only `help` and `clear` are enabled. Use
-`BuiltinCommands::default()` explicitly for that set, or
-`BuiltinCommands::all()` to enable every built-in command. To choose a custom
+`BuiltinCommand::all()` to enable every built-in command. To choose a custom
 set, pass it to `with_builtin_commands`:
 
 ```rust
-use chill_bevy_console::{BuiltinCommand, BuiltinCommands, ChillConsole, ConsoleConfig};
+use chill_bevy_console::{BuiltinCommand, ChillConsole, ConsoleConfig};
 
 let plugin = ChillConsole::default()
-    .with_builtin_commands(BuiltinCommands::all());
+    .with_builtin_commands(BuiltinCommand::all());
 
 let plugin = ChillConsole::default()
     .with_builtin_commands([BuiltinCommand::Help, BuiltinCommand::Alias]);
