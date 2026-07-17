@@ -304,7 +304,7 @@ fn lock_console_for_release(mut state: ResMut<ConsoleState>) {
 | Command   | Description                     |
 |-----------|---------------------------------|
 | `help`    | List all registered commands    |
-| `clear`   | Clear the console output        |
+| `clear`   | Clear the console output (`clear --history` also clears persisted command recall when `persistent-history` is enabled) |
 | `alias` | Manage runtime aliases |
 | `bind` | Manage runtime key bindings |
 | `res` | Inspect and change resource properties (requires `resource-properties`) |

@@ -13,12 +13,18 @@ pub fn plugin(app: &mut App) {
         .builtin_commands
         .clone();
     if enabled.contains(&BuiltinCommand::Clear) {
-        app.add_console_command_spec(
-            CommandSpec::new("clear")
-                .help("clear - clear the console output")
-                .summary("Clear the console output"),
-            clear_cmd,
-        );
+        #[cfg(feature = "persistent-history")]
+        let clear_spec = CommandSpec::new("clear")
+            .help("clear [--history] - clear the console output")
+            .summary("Clear the console output, optionally including command recall history")
+            .args([
+                ArgumentSpec::new("--history").help("Also clear persisted command recall history")
+            ]);
+        #[cfg(not(feature = "persistent-history"))]
+        let clear_spec = CommandSpec::new("clear")
+            .help("clear - clear the console output")
+            .summary("Clear the console output");
+        app.add_console_command_spec(clear_spec, clear_cmd);
     }
     if enabled.contains(&BuiltinCommand::Help) {
         app.add_console_command_spec(
@@ -62,8 +68,22 @@ pub fn plugin(app: &mut App) {
     }
 }
 
-fn clear_cmd(In(_args): CommandArgs, mut buffer: ResMut<ConsoleBuffer>) -> ConsoleResult {
+fn clear_cmd(
+    In(args): CommandArgs,
+    mut buffer: ResMut<ConsoleBuffer>,
+    #[cfg(feature = "persistent-history")] mut state: ResMut<crate::ConsoleState>,
+) -> ConsoleResult {
     buffer.clear();
+    #[cfg(feature = "persistent-history")]
+    if args.len() == 1
+        && args
+            .get(0)
+            .is_some_and(|arg| arg.eq_ignore_ascii_case("--history"))
+    {
+        state.clear_command_history();
+    }
+    #[cfg(not(feature = "persistent-history"))]
+    let _ = args;
     ConsoleResult::default()
 }
 
@@ -515,6 +535,31 @@ mod tests {
         assert!(registry.get("help").is_some());
         assert!(registry.get("clear").is_none());
         assert!(registry.get("get").is_none());
+    }
+
+    #[cfg(feature = "persistent-history")]
+    #[test]
+    fn clear_history_flag_clears_command_recall() {
+        let mut world = World::new();
+        world.insert_resource(ConsoleBuffer::default());
+        world.insert_resource(ConsoleState {
+            cmd_history: vec!["map forest".into()],
+            cmd_history_index: Some(0),
+            cmd_history_draft: "draft".into(),
+            command_history_revision: 7,
+            ..default()
+        });
+        let clear = world.register_system(super::clear_cmd);
+
+        world
+            .run_system_with(clear, Args::from(vec!["--history".into()]))
+            .unwrap();
+
+        let state = world.resource::<ConsoleState>();
+        assert!(state.cmd_history.is_empty());
+        assert_eq!(state.cmd_history_index, None);
+        assert!(state.cmd_history_draft.is_empty());
+        assert_eq!(state.command_history_revision, 8);
     }
 
     #[cfg(not(feature = "resource-properties"))]
