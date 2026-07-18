@@ -514,6 +514,11 @@ pub(crate) fn execute_pending_commands(world: &mut World) {
                 return;
             }
             let suffix = &cmd_str[parsed.tokens[0].range.end..];
+            let history_index = queued.history_index.or_else(|| {
+                world
+                    .resource_mut::<ConsoleState>()
+                    .take_pending_history_index(&cmd_str)
+            });
             world
                 .resource_mut::<ConsoleCommandQueue>()
                 .push_alias_expansion(
@@ -522,6 +527,7 @@ pub(crate) fn execute_pending_commands(world: &mut World) {
                         origin: request.origin,
                     },
                     queued.alias_depth + 1,
+                    history_index,
                 );
             return;
         }
@@ -549,13 +555,14 @@ pub(crate) fn execute_pending_commands(world: &mut World) {
         source.clone(),
         format!("> {cmd_str}"),
     );
-    if let Some(history_index) = world
-        .resource_mut::<ConsoleState>()
-        .take_pending_history_index(&cmd_str)
-        && let Some(line_id) = world
-            .resource::<ConsoleBuffer>()
-            .last_line()
-            .map(|line| line.id)
+    if let Some(history_index) = queued.history_index.or_else(|| {
+        world
+            .resource_mut::<ConsoleState>()
+            .take_pending_history_index(&cmd_str)
+    }) && let Some(line_id) = world
+        .resource::<ConsoleBuffer>()
+        .last_line()
+        .map(|line| line.id)
     {
         world
             .resource_mut::<ConsoleState>()
@@ -874,6 +881,27 @@ mod tests {
         let lines = app.world().resource::<ConsoleBuffer>().lines();
         assert_eq!(lines[0].text, "> echo hello world");
         assert_eq!(lines[1].text, "hello|world");
+    }
+
+    #[test]
+    fn recalled_runtime_alias_links_to_its_expanded_echo_row() {
+        let mut app = command_test_app(BuiltinCommands::default());
+        app.world_mut()
+            .resource_mut::<ConsoleAliases>()
+            .set("say_hi", "echo hello");
+        app.world_mut()
+            .resource_mut::<ConsoleState>()
+            .record_command("say_hi world".into(), 10);
+        app.world_mut()
+            .resource_mut::<ConsoleCommandQueue>()
+            .push(ConsoleRequest::new("say_hi world"));
+
+        execute_pending_commands(app.world_mut());
+        execute_pending_commands(app.world_mut());
+
+        let echo_id = app.world().resource::<ConsoleBuffer>().lines()[0].id;
+        let state = app.world().resource::<ConsoleState>();
+        assert_eq!(state.cmd_history_line_ids, [Some(echo_id)]);
     }
 
     #[test]

@@ -60,6 +60,10 @@ pub(crate) struct DevConsoleOverlay;
 #[derive(Component, Default, Clone)]
 pub(crate) struct ConsoleHistory;
 
+/// A rendered row in the console history panel.
+#[derive(Component, Default, Clone)]
+pub(crate) struct ConsoleHistoryLine;
+
 #[derive(Component, Default, Clone)]
 pub(crate) struct ConsoleInput;
 
@@ -237,7 +241,7 @@ pub(crate) fn update_console_ui(
     assets: Res<ConsoleAssets>,
     config: Res<ConsoleConfig>,
     mut history_q: Query<(Entity, &mut ScrollPosition), With<ConsoleHistory>>,
-    mut history_line_q: Query<&mut BackgroundColor>,
+    mut history_line_q: Query<&mut BackgroundColor, With<ConsoleHistoryLine>>,
     input_q: Query<(&EditableText, &TextLayoutInfo, &TextScroll), With<ConsoleInput>>,
     mut ghost_q: Query<(&mut Text, &mut Node), With<ConsoleInputGhost>>,
     dropdown_q: Query<(Entity, Option<&Children>), With<ConsoleDropdown>>,
@@ -267,6 +271,7 @@ pub(crate) fn update_console_ui(
                 for line in buffer.lines().iter().skip(rendered_history.lines.len()) {
                     let entity = parent
                         .spawn((
+                            ConsoleHistoryLine,
                             Node {
                                 width: Val::Percent(100.0),
                                 ..default()

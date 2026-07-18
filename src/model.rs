@@ -135,6 +135,8 @@ pub struct ConsoleCommandQueue {
 pub(crate) struct QueuedConsoleRequest {
     pub request: ConsoleRequest,
     pub alias_depth: u8,
+    /// The recalled history entry whose echo should be linked after alias expansion.
+    pub history_index: Option<usize>,
 }
 
 /// User-defined command expansions. Unlike aliases declared on `CommandSpec`,
@@ -290,6 +292,7 @@ impl ConsoleCommandQueue {
         self.requests.push_back(QueuedConsoleRequest {
             request,
             alias_depth: 0,
+            history_index: None,
         });
     }
     pub fn is_empty(&self) -> bool {
@@ -303,10 +306,16 @@ impl ConsoleCommandQueue {
         self.requests.pop_front()
     }
 
-    pub(crate) fn push_alias_expansion(&mut self, request: ConsoleRequest, alias_depth: u8) {
+    pub(crate) fn push_alias_expansion(
+        &mut self,
+        request: ConsoleRequest,
+        alias_depth: u8,
+        history_index: Option<usize>,
+    ) {
         self.requests.push_front(QueuedConsoleRequest {
             request,
             alias_depth,
+            history_index,
         });
     }
 }
