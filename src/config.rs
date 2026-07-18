@@ -117,6 +117,8 @@ pub struct ConsoleConfig {
     pub history_warn_color: Color,
     /// Text color for error output lines.
     pub history_error_color: Color,
+    /// Background color for the output row selected through Up/Down recall.
+    pub history_highlight_bg: Color,
 
     // ── Input bar ─────────────────────────────────────────────────────────────
     /// Background color of the input bar.
@@ -255,6 +257,7 @@ impl Default for ConsoleConfig {
             history_debug_color: Color::srgb(0.55, 0.55, 0.55),
             history_warn_color: Color::srgb(1.0, 0.78, 0.25),
             history_error_color: Color::srgb(1.0, 0.35, 0.35),
+            history_highlight_bg: Color::srgba(1.0, 1.0, 1.0, 0.10),
 
             input_bg: Color::srgba(0.0, 0.0, 0.0, 0.98),
             input_padding_h: 10.0,

@@ -2,16 +2,21 @@ CARGO ?= cargo
 
 .DEFAULT_GOAL := help
 
-.PHONY: help format check package publish
+.PHONY: help format lint-fix check package publish
 
 help:
 	@printf '%s\n' \
 		'make format   Format the workspace' \
+		'make lint-fix Fix Clippy findings and format the workspace' \
 		'make check    Run the same checks as CI' \
 		'make package  Verify the crates.io packages' \
 		'make publish  Check and publish the workspace'
 
 format:
+	$(CARGO) fmt --all
+
+lint-fix:
+	$(CARGO) clippy --fix --allow-dirty --workspace --all-targets --all-features --locked -- -D warnings
 	$(CARGO) fmt --all
 
 check:

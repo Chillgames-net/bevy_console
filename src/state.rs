@@ -25,11 +25,18 @@ pub struct ConsoleState {
     pub scroll_follow: bool,
     /// Previously submitted commands, for Up/Down recall.
     pub(crate) cmd_history: Vec<String>,
+    /// The echoed output line for each recalled command, when it is still in
+    /// the output buffer. Kept alongside `cmd_history` so selection can be
+    /// rendered without guessing from duplicate command text.
+    pub(crate) cmd_history_line_ids: Vec<Option<u64>>,
     /// `Some(i)` while the user is browsing `cmd_history`; `None` otherwise.
     pub(crate) cmd_history_index: Option<usize>,
     /// The input that was live when the user started browsing history,
     /// restored when they navigate back past the newest entry.
     pub(crate) cmd_history_draft: String,
+    /// The history item submitted from the input bar that is waiting for its
+    /// command echo to be written.
+    pub(crate) pending_history_index: Option<usize>,
     pub(crate) command_history_revision: u64,
 }
 
@@ -66,22 +73,49 @@ impl ConsoleState {
 
     pub(crate) fn record_command(&mut self, command: String, limit: usize) {
         if self.cmd_history.last() == Some(&command) {
+            self.pending_history_index = self.cmd_history.len().checked_sub(1);
             return;
         }
         self.cmd_history.push(command);
+        self.cmd_history_line_ids.push(None);
         let excess = self.cmd_history.len().saturating_sub(limit);
         if excess > 0 {
             self.cmd_history.drain(..excess);
+            self.cmd_history_line_ids.drain(..excess);
         }
+        self.pending_history_index = self.cmd_history.len().checked_sub(1);
         self.command_history_revision = self.command_history_revision.wrapping_add(1);
+    }
+
+    pub(crate) fn take_pending_history_index(&mut self, command: &str) -> Option<usize> {
+        let index = self.pending_history_index?;
+        if self.cmd_history.get(index).map(String::as_str) == Some(command) {
+            self.pending_history_index = None;
+            Some(index)
+        } else {
+            None
+        }
+    }
+
+    pub(crate) fn set_history_line_id(&mut self, index: usize, line_id: u64) {
+        if let Some(id) = self.cmd_history_line_ids.get_mut(index) {
+            *id = Some(line_id);
+        }
+    }
+
+    pub(crate) fn selected_history_line_id(&self) -> Option<u64> {
+        self.cmd_history_index
+            .and_then(|index| self.cmd_history_line_ids.get(index).copied().flatten())
     }
 
     /// Clears command recall and marks persisted history stale.
     #[cfg(feature = "persistent-history")]
     pub(crate) fn clear_command_history(&mut self) {
         self.cmd_history.clear();
+        self.cmd_history_line_ids.clear();
         self.cmd_history_index = None;
         self.cmd_history_draft.clear();
+        self.pending_history_index = None;
         self.command_history_revision = self.command_history_revision.wrapping_add(1);
     }
 
@@ -89,6 +123,7 @@ impl ConsoleState {
     pub(crate) fn restore_command_history(&mut self, commands: Vec<String>, limit: usize) {
         let keep_from = commands.len().saturating_sub(limit);
         self.cmd_history = commands.into_iter().skip(keep_from).collect();
+        self.cmd_history_line_ids = vec![None; self.cmd_history.len()];
         self.command_history_revision = 0;
     }
 
@@ -194,8 +229,10 @@ impl Default for ConsoleState {
             completion_cursor: None,
             scroll_follow: true,
             cmd_history: Vec::new(),
+            cmd_history_line_ids: Vec::new(),
             cmd_history_index: None,
             cmd_history_draft: String::new(),
+            pending_history_index: None,
             command_history_revision: 0,
         }
     }
@@ -340,5 +377,16 @@ mod tests {
         state.replace_input("for".into());
         state.recall_history_matching_input();
         assert_eq!(state.input, "map forest");
+    }
+
+    #[test]
+    fn recorded_command_keeps_its_echo_line_for_recall_highlighting() {
+        let mut state = ConsoleState::default();
+        state.record_command("map forest".into(), 10);
+        let index = state.take_pending_history_index("map forest").unwrap();
+        state.set_history_line_id(index, 42);
+        state.cmd_history_index = Some(index);
+
+        assert_eq!(state.selected_history_line_id(), Some(42));
     }
 }

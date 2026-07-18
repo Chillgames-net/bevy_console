@@ -30,7 +30,8 @@ pub(crate) fn load_initial_data(config: &ConsoleConfig) -> (ConsoleState, Consol
                     content.lines().map(str::to_owned).collect(),
                     config.max_command_history,
                 );
-                for command in state.command_history() {
+                let commands = state.command_history().to_vec();
+                for (index, command) in commands.iter().enumerate() {
                     let name = ParsedInput::parse(command)
                         .command()
                         .unwrap_or_default()
@@ -40,6 +41,9 @@ pub(crate) fn load_initial_data(config: &ConsoleConfig) -> (ConsoleState, Consol
                         ConsoleLineSource::Command { name },
                         format!("> {command}"),
                     );
+                    if let Some(line_id) = buffer.last_line().map(|line| line.id) {
+                        state.set_history_line_id(index, line_id);
+                    }
                 }
             }
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
