@@ -55,10 +55,14 @@ impl FromWorld for ConsoleAssets {
 #[derive(Component, Default, Clone)]
 pub(crate) struct DevConsoleOverlay;
 
-/// The history panel. `ColumnReverse` keeps the newest line at the bottom;
-/// older lines overflow upward and get clipped.
+/// The scrollable history viewport.
 #[derive(Component, Default, Clone)]
 pub(crate) struct ConsoleHistory;
+
+/// The history content column. It fills an empty viewport so its lines can be
+/// bottom-aligned, then grows normally once there is more output than fits.
+#[derive(Component, Default, Clone)]
+pub(crate) struct ConsoleHistoryContent;
 
 /// A rendered row in the console history panel.
 #[derive(Component, Default, Clone)]
@@ -151,7 +155,23 @@ pub(crate) fn spawn_console_ui(
                     BackgroundColor(config.history_bg),
                     ScrollPosition::default(),
                 ))
-                .observe(scroll_console_on_touch_drag);
+                .observe(scroll_console_on_touch_drag)
+                .with_children(|history| {
+                    history.spawn((
+                        ConsoleHistoryContent,
+                        Node {
+                            flex_direction: FlexDirection::Column,
+                            // Keep a short history on the terminal baseline,
+                            // without positioning overflowing lines above the
+                            // scroll viewport.
+                            justify_content: JustifyContent::FlexEnd,
+                            width: Val::Percent(100.0),
+                            min_height: Val::Percent(100.0),
+                            flex_shrink: 0.0,
+                            ..default()
+                        },
+                    ));
+                });
 
             parent
                 .spawn((
@@ -241,6 +261,7 @@ pub(crate) fn update_console_ui(
     assets: Res<ConsoleAssets>,
     config: Res<ConsoleConfig>,
     mut history_q: Query<(Entity, &mut ScrollPosition), With<ConsoleHistory>>,
+    history_content_q: Query<Entity, With<ConsoleHistoryContent>>,
     mut history_line_q: Query<&mut BackgroundColor, With<ConsoleHistoryLine>>,
     input_q: Query<(&EditableText, &TextLayoutInfo, &TextScroll), With<ConsoleInput>>,
     mut ghost_q: Query<(&mut Text, &mut Node), With<ConsoleInputGhost>>,
@@ -249,10 +270,12 @@ pub(crate) fn update_console_ui(
     mut rendered_dropdown: Local<RenderedDropdown>,
 ) {
     // ── History lines ─────────────────────────────────────────────────────────
-    if let Ok((history_entity, mut scroll_pos)) = history_q.single_mut() {
-        let ui_recreated = rendered_history.entity != Some(history_entity);
+    if let (Ok((_, mut scroll_pos)), Ok(history_content)) =
+        (history_q.single_mut(), history_content_q.single())
+    {
+        let ui_recreated = rendered_history.entity != Some(history_content);
         if ui_recreated {
-            rendered_history.entity = Some(history_entity);
+            rendered_history.entity = Some(history_content);
             rendered_history.lines.clear();
         }
         if buffer.is_changed() || ui_recreated {
@@ -267,7 +290,7 @@ pub(crate) fn update_console_ui(
             }
 
             let font = assets.font.clone();
-            commands.entity(history_entity).with_children(|parent| {
+            commands.entity(history_content).with_children(|parent| {
                 for line in buffer.lines().iter().skip(rendered_history.lines.len()) {
                     let entity = parent
                         .spawn((
@@ -540,7 +563,7 @@ fn history_line_color(level: ConsoleLevel, config: &ConsoleConfig) -> Color {
 
 #[cfg(test)]
 mod tests {
-    use super::{ConsoleAssets, ConsoleHistory, update_console_ui};
+    use super::{ConsoleAssets, ConsoleHistory, ConsoleHistoryContent, update_console_ui};
     use crate::{ConsoleBuffer, ConsoleConfig, ConsoleLevel, ConsoleLineSource, ConsoleState};
     use bevy::prelude::*;
     use bevy::ui::ScrollPosition;
@@ -567,8 +590,13 @@ mod tests {
             })
             .insert_resource(buffer)
             .add_systems(Update, update_console_ui);
+        let history = app
+            .world_mut()
+            .spawn((ConsoleHistory, ScrollPosition::default()))
+            .id();
         app.world_mut()
-            .spawn((ConsoleHistory, ScrollPosition::default()));
+            .entity_mut(history)
+            .with_child((ConsoleHistoryContent, Node::default()));
 
         app.update();
         assert_history_highlight(&mut app, "> second");

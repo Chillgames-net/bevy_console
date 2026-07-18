@@ -30,9 +30,8 @@
 //!
 //! - `embedded-font` — embed `UbuntuMono-R.ttf` in the binary and use it as the
 //!   default font, so consumers don't need to ship a font asset.
-//! - `persistent-history` — load and save entered commands to a plain-text file
-//!   between runs. The path
-//!   is configured via [`ConsoleConfig::history_file`].
+//! - `persistent-history` — load and save a plain-text input/output transcript
+//!   between runs. The path is configured through [`ConsolePersistence`].
 //! - `resource-properties` — expose selected fields on Bevy resources through
 //!   the console. See [`ConsoleResource`] and [`ConsoleAppExt::add_console_resource`].
 //!
@@ -74,6 +73,8 @@ pub use model::{
     ConsoleLineSource, ConsoleRequest, ConsoleResult,
 };
 pub use parser::{ParseError, ParsedInput, ParsedToken, QuoteStyle};
+#[cfg(feature = "persistent-history")]
+pub use persistence::ConsolePersistence;
 pub use registry::{CommandDef, CommandExecutor, ConsoleRegistry};
 pub use state::ConsoleState;
 
@@ -280,8 +281,11 @@ pub fn console_closed(state: Option<Res<ConsoleState>>) -> bool {
 #[derive(Default)]
 pub struct ChillConsole {
     pub config: ConsoleConfig,
-    /// Built-in commands registered by the plugin. Defaults to `help` and
-    /// `clear`.
+    /// Settings for optional transcript persistence.
+    #[cfg(feature = "persistent-history")]
+    pub persistence: ConsolePersistence,
+    /// Built-in commands registered by the plugin.
+    /// Defaults to `help` and `clear`.
     pub builtin_commands: BuiltinCommands,
 }
 
@@ -327,15 +331,19 @@ impl Plugin for ChillConsole {
         }
 
         #[cfg(feature = "persistent-history")]
-        let (initial_state, initial_buffer) = persistence::load_initial_data(&self.config);
+        let (initial_state, initial_buffer) =
+            persistence::load_initial_data(&self.config, &self.persistence);
         #[cfg(not(feature = "persistent-history"))]
         let (initial_state, initial_buffer) = (
             ConsoleState::default(),
             ConsoleBuffer::new(self.config.max_history_lines),
         );
 
-        app.insert_resource(self.config.clone())
-            .insert_resource(self.builtin_commands.clone())
+        app.insert_resource(self.config.clone());
+        #[cfg(feature = "persistent-history")]
+        app.insert_resource(self.persistence.clone());
+
+        app.insert_resource(self.builtin_commands.clone())
             .init_resource::<ConsoleRegistry>()
             .init_resource::<ConsoleAliases>()
             .init_resource::<ConsoleBinds>()

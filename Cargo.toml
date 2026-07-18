@@ -38,7 +38,7 @@ all = ["embedded-font", "persistent-history", "resource-properties"]
 # Embeds assets/UbuntuMono-R.ttf into the binary and uses it as the default font.
 embedded-font = []
 # Loads and saves command recall history between runs, controlled by
-# `ConsoleConfig::history_file`.
+# `ConsolePersistence::history_file`.
 persistent-history = []
 # Exposes opt-in fields on Bevy resources through the built-in res console
 # command. The custom derive is re-exported when this is enabled.

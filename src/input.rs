@@ -237,22 +237,18 @@ pub(crate) fn capture_console_input(
                 if state.cmd_history.is_empty() {
                     continue;
                 }
-                match state.cmd_history_index {
-                    None => {
+                let search_end = state.cmd_history_index.unwrap_or(state.cmd_history.len());
+                let previous = state.cmd_history[..search_end]
+                    .iter()
+                    .rposition(|command| command != &state.input);
+                if let Some(idx) = previous {
+                    if state.cmd_history_index.is_none() {
                         // Start browsing: save the live input as a draft.
                         state.cmd_history_draft = state.input.clone();
-                        let idx = state.cmd_history.len() - 1;
-                        state.cmd_history_index = Some(idx);
-                        let value = state.cmd_history[idx].clone();
-                        sync_history_selection(&mut state, &mut input, value);
                     }
-                    Some(0) => { /* already at oldest — stay */ }
-                    Some(i) => {
-                        let idx = i - 1;
-                        state.cmd_history_index = Some(idx);
-                        let value = state.cmd_history[idx].clone();
-                        sync_history_selection(&mut state, &mut input, value);
-                    }
+                    state.cmd_history_index = Some(idx);
+                    let value = state.cmd_history[idx].clone();
+                    sync_history_selection(&mut state, &mut input, value);
                 }
                 continue;
             }
@@ -262,21 +258,26 @@ pub(crate) fn capture_console_input(
                     state.select_next_completion();
                     continue;
                 }
-                // Command history: go to newer entry or restore draft.
+                // Command history: go to the next distinct entry or restore
+                // the draft after the newest distinct entry.
                 match state.cmd_history_index {
                     None => { /* not browsing — nothing to do */ }
-                    Some(i) if i + 1 >= state.cmd_history.len() => {
-                        // Past the newest entry: restore the draft.
-                        state.cmd_history_index = None;
-                        let value = state.cmd_history_draft.clone();
-                        sync_history_selection(&mut state, &mut input, value);
-                        state.cmd_history_draft.clear();
-                    }
                     Some(i) => {
-                        let idx = i + 1;
-                        state.cmd_history_index = Some(idx);
-                        let value = state.cmd_history[idx].clone();
-                        sync_history_selection(&mut state, &mut input, value);
+                        let next = state.cmd_history[i + 1..]
+                            .iter()
+                            .position(|command| command != &state.input)
+                            .map(|offset| i + 1 + offset);
+                        if let Some(idx) = next {
+                            state.cmd_history_index = Some(idx);
+                            let value = state.cmd_history[idx].clone();
+                            sync_history_selection(&mut state, &mut input, value);
+                        } else {
+                            // Past the newest distinct entry: restore the draft.
+                            state.cmd_history_index = None;
+                            let value = state.cmd_history_draft.clone();
+                            sync_history_selection(&mut state, &mut input, value);
+                            state.cmd_history_draft.clear();
+                        }
                     }
                 }
                 continue;
@@ -546,13 +547,15 @@ pub(crate) fn execute_pending_commands(world: &mut World) {
         return;
     };
 
-    let source = ConsoleLineSource::Command {
+    let command_source = ConsoleLineSource::Command {
         name: command_name.clone(),
     };
     write_line(
         world,
         ConsoleLevel::Info,
-        source.clone(),
+        ConsoleLineSource::CommandEcho {
+            name: command_name.clone(),
+        },
         format!("> {cmd_str}"),
     );
     if let Some(history_index) = queued.history_index.or_else(|| {
@@ -582,7 +585,7 @@ pub(crate) fn execute_pending_commands(world: &mut World) {
         .iter()
         .any(|(level, _)| *level == ConsoleLevel::Error);
     for (level, text) in result {
-        write_line(world, level, source.clone(), text);
+        write_line(world, level, command_source.clone(), text);
     }
     world.write_message(ConsoleCommandExecuted {
         input: cmd_str,
@@ -708,6 +711,45 @@ mod tests {
             app.world().resource::<ConsoleState>().cmd_history_index,
             None
         );
+    }
+
+    #[test]
+    fn history_navigation_skips_duplicate_entries_in_both_directions() {
+        let mut app = App::new();
+        app.insert_resource(ConsoleConfig::default())
+            .insert_resource(BuiltinCommands::default())
+            .insert_resource(ConsoleState {
+                open: true,
+                cmd_history: vec!["status".into(), "help".into(), "help".into()],
+                ..default()
+            })
+            .insert_resource(ButtonInput::<KeyCode>::default())
+            .init_resource::<ConsoleCommandQueue>()
+            .add_message::<KeyboardInput>()
+            .add_systems(Update, capture_console_input);
+        app.world_mut().spawn((ConsoleInput, EditableText::new("")));
+
+        for (key, expected) in [
+            (Key::ArrowUp, "help"),
+            (Key::ArrowUp, "status"),
+            (Key::ArrowDown, "help"),
+            (Key::ArrowDown, ""),
+        ] {
+            app.world_mut().write_message(KeyboardInput {
+                key_code: match key {
+                    Key::ArrowUp => KeyCode::ArrowUp,
+                    Key::ArrowDown => KeyCode::ArrowDown,
+                    _ => unreachable!(),
+                },
+                logical_key: key,
+                state: ButtonState::Pressed,
+                text: None,
+                repeat: false,
+                window: Entity::PLACEHOLDER,
+            });
+            app.update();
+            assert_eq!(app.world().resource::<ConsoleState>().input, expected);
+        }
     }
 
     #[test]
