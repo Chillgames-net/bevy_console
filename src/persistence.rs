@@ -160,6 +160,16 @@ fn restore_history(
         let Some((kind, encoded)) = record.split_once('\t') else {
             return Err(());
         };
+        let (level, encoded) = match kind {
+            "E" | "O" => match encoded.split_once('\t') {
+                Some((level, encoded)) => (level.parse().map_err(|_| ())?, encoded),
+                // Transcripts written before levels were persisted restore at
+                // the level they historically used.
+                None => (ConsoleLevel::Info, encoded),
+            },
+            "H" => (ConsoleLevel::Info, encoded),
+            _ => return Err(()),
+        };
         let Some(text) = decode_text(encoded) else {
             return Err(());
         };
@@ -171,13 +181,13 @@ fn restore_history(
                     .unwrap_or_default()
                     .to_string();
                 buffer.push(
-                    ConsoleLevel::Info,
+                    level,
                     ConsoleLineSource::CommandEcho { name },
                     format!("> {text}"),
                 );
                 command_echoes.push((text, buffer.last_line().map(|line| line.id)));
             }
-            "O" => buffer.push(ConsoleLevel::Info, ConsoleLineSource::System, text),
+            "O" => buffer.push(level, ConsoleLineSource::System, text),
             _ => return Err(()),
         }
     }
@@ -259,6 +269,8 @@ fn write_history_with_settings(
             _ => ("O", line.text.as_str()),
         };
         content.push_str(kind);
+        content.push('\t');
+        content.push_str(line.level.as_str());
         content.push('\t');
         content.push_str(&encode_text(truncate_text(
             text,
@@ -419,7 +431,7 @@ mod tests {
         write_history(&path, &state, &saved).unwrap();
         assert_eq!(
             std::fs::read_to_string(&path).unwrap(),
-            "H\techo hello\nE\techo hello\nO\thello\nO\tlow memory\n"
+            "H\techo hello\nE\tinfo\techo hello\nO\tinfo\thello\nO\twarn\tlow memory\n"
         );
 
         let (state, buffer) = load(&persistence(path.clone()));
@@ -434,6 +446,46 @@ mod tests {
             ["> echo hello", "hello", "low memory"]
         );
         assert_eq!(buffer.lines()[1].source, ConsoleLineSource::System);
+        assert_eq!(buffer.lines()[2].level, ConsoleLevel::Warn);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn transcript_round_trips_each_log_level() {
+        let path = unique_history_path("levels");
+        let state = ConsoleState::default();
+        let mut buffer = ConsoleBuffer::default();
+        for level in ConsoleLevel::ALL {
+            buffer.push(level, ConsoleLineSource::System, level.as_str());
+        }
+
+        write_history(&path, &state, &buffer).unwrap();
+        let (_, restored_buffer) = load(&persistence(path.clone()));
+
+        assert_eq!(
+            restored_buffer
+                .lines()
+                .iter()
+                .map(|line| line.level)
+                .collect::<Vec<_>>(),
+            ConsoleLevel::ALL
+        );
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn legacy_rows_restore_as_info() {
+        let path = unique_history_path("legacy_levels");
+        std::fs::write(&path, "H\tstatus\nE\tstatus\nO\tready\n").unwrap();
+
+        let (_, buffer) = load(&persistence(path.clone()));
+
+        assert!(
+            buffer
+                .lines()
+                .iter()
+                .all(|line| line.level == ConsoleLevel::Info)
+        );
         std::fs::remove_file(path).unwrap();
     }
 
