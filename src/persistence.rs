@@ -5,8 +5,16 @@ use crate::{ConsoleBuffer, ConsoleConfig, ConsoleState};
 use crate::{ConsoleLevel, ConsoleLineSource, ParsedInput};
 use bevy::prelude::*;
 #[cfg(not(target_arch = "wasm32"))]
+use bevy::tasks::{IoTaskPool, Task, block_on, futures_lite::future};
+#[cfg(not(target_arch = "wasm32"))]
 use std::path::Path;
 use std::path::PathBuf;
+#[cfg(not(target_arch = "wasm32"))]
+use std::time::Duration;
+
+#[cfg(not(target_arch = "wasm32"))]
+/// Coalesce frequent console output while still saving during a continuous stream.
+const SAVE_DEBOUNCE: Duration = Duration::from_millis(250);
 
 /// Settings for optional console transcript persistence.
 #[derive(Resource, Clone)]
@@ -89,6 +97,9 @@ struct PersistenceTracker {
     max_saved_lines: usize,
     recall_only: bool,
     max_line_length: Option<usize>,
+    dirty: bool,
+    save_at: Duration,
+    task: Option<Task<(PathBuf, std::io::Result<()>)>>,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -96,8 +107,21 @@ fn persist_history(
     persistence: Res<ConsolePersistence>,
     state: Res<ConsoleState>,
     buffer: Res<ConsoleBuffer>,
+    time: Res<Time<Real>>,
     mut tracker: Local<PersistenceTracker>,
 ) {
+    if let Some(task) = tracker.task.as_mut()
+        && let Some((path, result)) = block_on(future::poll_once(task))
+    {
+        tracker.task = None;
+        if let Err(error) = result {
+            warn!(
+                "chill_bevy_console: failed to write history file {:?}: {}",
+                path, error
+            );
+        }
+    }
+
     let path = persistence.history_file.clone();
     if !tracker.initialized {
         tracker.initialized = true;
@@ -108,13 +132,18 @@ fn persist_history(
         tracker.max_line_length = persistence.max_line_length;
         return;
     }
+    let settings_changed = tracker.path != path
+        || tracker.max_saved_lines != persistence.max_saved_lines
+        || tracker.recall_only != persistence.recall_only
+        || tracker.max_line_length != persistence.max_line_length;
+    let transcript_changed = !persistence.recall_only && buffer.is_changed();
     if tracker.revision == state.command_history_revision
-        && tracker.path == path
-        && tracker.max_saved_lines == persistence.max_saved_lines
-        && tracker.recall_only == persistence.recall_only
-        && tracker.max_line_length == persistence.max_line_length
-        && !buffer.is_changed()
+        && !settings_changed
+        && !transcript_changed
     {
+        if tracker.dirty && tracker.task.is_none() && time.elapsed() >= tracker.save_at {
+            start_history_write(&mut tracker, &state, &buffer, &persistence);
+        }
         return;
     }
 
@@ -123,12 +152,100 @@ fn persist_history(
     tracker.max_saved_lines = persistence.max_saved_lines;
     tracker.recall_only = persistence.recall_only;
     tracker.max_line_length = persistence.max_line_length;
-    if let Err(error) = write_history_with_settings(&path, &state, &buffer, &persistence) {
-        warn!(
-            "chill_bevy_console: failed to write history file {:?}: {}",
-            path, error
-        );
+    // Do not push the deadline forward for every line: a busy console should
+    // save at most once per interval instead of waiting forever for quiet.
+    if !tracker.dirty {
+        tracker.save_at = time.elapsed() + SAVE_DEBOUNCE;
     }
+    tracker.dirty = true;
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn start_history_write(
+    tracker: &mut PersistenceTracker,
+    state: &ConsoleState,
+    buffer: &ConsoleBuffer,
+    persistence: &ConsolePersistence,
+) {
+    let path = persistence.history_file.clone();
+    let content = history_content(state, buffer, persistence);
+    tracker.dirty = false;
+    tracker.task = Some(IoTaskPool::get().spawn(async move {
+        let result = write_history_content(&path, &content);
+        (path, result)
+    }));
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn write_history_content(path: &Path, content: &str) -> std::io::Result<()> {
+    if let Some(parent) = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+    {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(path, content)
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn history_content(
+    state: &ConsoleState,
+    buffer: &ConsoleBuffer,
+    persistence: &ConsolePersistence,
+) -> String {
+    let mut content = String::new();
+    for command in state.command_history() {
+        content.push_str("H\t");
+        content.push_str(&encode_text(command));
+        content.push('\n');
+    }
+    if persistence.recall_only {
+        return content;
+    }
+
+    let first_saved_line = buffer
+        .lines()
+        .len()
+        .saturating_sub(persistence.max_saved_lines);
+    for line in buffer.lines().iter().skip(first_saved_line) {
+        let (kind, text) = match &line.source {
+            ConsoleLineSource::CommandEcho { .. } => (
+                "C",
+                line.text.strip_prefix("> ").unwrap_or(line.text.as_str()),
+            ),
+            _ => (output_kind(line.level), line.text.as_str()),
+        };
+        content.push_str(kind);
+        content.push('\t');
+        content.push_str(&encode_text(truncate_text(
+            text,
+            persistence.max_line_length,
+        )));
+        content.push('\n');
+    }
+    content
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+const fn output_kind(level: ConsoleLevel) -> &'static str {
+    match level {
+        ConsoleLevel::Trace => "T",
+        ConsoleLevel::Debug => "D",
+        ConsoleLevel::Info => "I",
+        ConsoleLevel::Warn => "W",
+        ConsoleLevel::Error => "E",
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[cfg(test)]
+fn write_history_with_settings(
+    path: &Path,
+    state: &ConsoleState,
+    buffer: &ConsoleBuffer,
+    persistence: &ConsolePersistence,
+) -> std::io::Result<()> {
+    write_history_content(path, &history_content(state, buffer, persistence))
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -160,14 +277,16 @@ fn restore_history(
         let Some((kind, encoded)) = record.split_once('\t') else {
             return Err(());
         };
-        let (level, encoded) = match kind {
-            "E" | "O" => match encoded.split_once('\t') {
-                Some((level, encoded)) => (level.parse().map_err(|_| ())?, encoded),
-                // Transcripts written before levels were persisted restore at
-                // the level they historically used.
-                None => (ConsoleLevel::Info, encoded),
-            },
-            "H" => (ConsoleLevel::Info, encoded),
+        if encoded.contains('\t') {
+            return Err(());
+        }
+        let level = match kind {
+            "C" | "H" => ConsoleLevel::Info,
+            "T" => ConsoleLevel::Trace,
+            "D" => ConsoleLevel::Debug,
+            "I" => ConsoleLevel::Info,
+            "W" => ConsoleLevel::Warn,
+            "E" => ConsoleLevel::Error,
             _ => return Err(()),
         };
         let Some(text) = decode_text(encoded) else {
@@ -175,7 +294,7 @@ fn restore_history(
         };
         match kind {
             "H" => commands.push(text),
-            "E" => {
+            "C" => {
                 let name = ParsedInput::parse(&text)
                     .command()
                     .unwrap_or_default()
@@ -187,7 +306,7 @@ fn restore_history(
                 );
                 command_echoes.push((text, buffer.last_line().map(|line| line.id)));
             }
-            "O" => buffer.push(level, ConsoleLineSource::System, text),
+            "T" | "D" | "I" | "W" | "E" => buffer.push(level, ConsoleLineSource::System, text),
             _ => return Err(()),
         }
     }
@@ -231,54 +350,6 @@ fn write_history(path: &Path, state: &ConsoleState, buffer: &ConsoleBuffer) -> s
             ..ConsolePersistence::default()
         },
     )
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-fn write_history_with_settings(
-    path: &Path,
-    state: &ConsoleState,
-    buffer: &ConsoleBuffer,
-    persistence: &ConsolePersistence,
-) -> std::io::Result<()> {
-    if let Some(parent) = path
-        .parent()
-        .filter(|parent| !parent.as_os_str().is_empty())
-    {
-        std::fs::create_dir_all(parent)?;
-    }
-    let mut content = String::new();
-    for command in state.command_history() {
-        content.push_str("H\t");
-        content.push_str(&encode_text(command));
-        content.push('\n');
-    }
-    if persistence.recall_only {
-        return std::fs::write(path, content);
-    }
-
-    let first_saved_line = buffer
-        .lines()
-        .len()
-        .saturating_sub(persistence.max_saved_lines);
-    for line in buffer.lines().iter().skip(first_saved_line) {
-        let (kind, text) = match &line.source {
-            ConsoleLineSource::CommandEcho { .. } => (
-                "E",
-                line.text.strip_prefix("> ").unwrap_or(line.text.as_str()),
-            ),
-            _ => ("O", line.text.as_str()),
-        };
-        content.push_str(kind);
-        content.push('\t');
-        content.push_str(line.level.as_str());
-        content.push('\t');
-        content.push_str(&encode_text(truncate_text(
-            text,
-            persistence.max_line_length,
-        )));
-        content.push('\n');
-    }
-    std::fs::write(path, content)
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -431,7 +502,7 @@ mod tests {
         write_history(&path, &state, &saved).unwrap();
         assert_eq!(
             std::fs::read_to_string(&path).unwrap(),
-            "H\techo hello\nE\tinfo\techo hello\nO\tinfo\thello\nO\twarn\tlow memory\n"
+            "H\techo hello\nC\techo hello\nI\thello\nW\tlow memory\n"
         );
 
         let (state, buffer) = load(&persistence(path.clone()));
@@ -460,6 +531,10 @@ mod tests {
         }
 
         write_history(&path, &state, &buffer).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            "T\ttrace\nD\tdebug\nI\tinfo\nW\twarn\nE\terror\n"
+        );
         let (_, restored_buffer) = load(&persistence(path.clone()));
 
         assert_eq!(
@@ -474,18 +549,14 @@ mod tests {
     }
 
     #[test]
-    fn legacy_rows_restore_as_info() {
-        let path = unique_history_path("legacy_levels");
-        std::fs::write(&path, "H\tstatus\nE\tstatus\nO\tready\n").unwrap();
+    fn old_record_formats_are_discarded() {
+        let path = unique_history_path("old_format");
+        std::fs::write(&path, "H\tstatus\nO\twarn\tready\n").unwrap();
 
-        let (_, buffer) = load(&persistence(path.clone()));
+        let (state, buffer) = load(&persistence(path.clone()));
 
-        assert!(
-            buffer
-                .lines()
-                .iter()
-                .all(|line| line.level == ConsoleLevel::Info)
-        );
+        assert!(state.command_history().is_empty());
+        assert!(buffer.lines().is_empty());
         std::fs::remove_file(path).unwrap();
     }
 
