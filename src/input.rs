@@ -830,6 +830,36 @@ mod tests {
     }
 
     #[test]
+    fn earlier_queued_command_does_not_consume_a_pending_history_link() {
+        let mut app = command_test_app(BuiltinCommands::default());
+        app.world_mut()
+            .resource_mut::<ConsoleCommandQueue>()
+            .push(ConsoleRequest::new("echo earlier"));
+        app.world_mut()
+            .resource_mut::<ConsoleState>()
+            .record_command("echo recalled".into(), 10);
+        app.world_mut()
+            .resource_mut::<ConsoleCommandQueue>()
+            .push(ConsoleRequest {
+                input: "echo recalled".into(),
+                origin: crate::CommandOrigin::LocalUi,
+            });
+
+        execute_pending_commands(app.world_mut());
+        assert_eq!(
+            app.world().resource::<ConsoleState>().pending_history_index,
+            Some(0)
+        );
+
+        execute_pending_commands(app.world_mut());
+        let echo_id = app.world().resource::<ConsoleBuffer>().lines()[2].id;
+        assert_eq!(
+            app.world().resource::<ConsoleState>().cmd_history_line_ids,
+            [Some(echo_id)]
+        );
+    }
+
+    #[test]
     fn runtime_aliases_expand_before_command_execution() {
         let mut app = command_test_app(BuiltinCommands::default());
         app.world_mut()

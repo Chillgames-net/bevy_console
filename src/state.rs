@@ -88,8 +88,13 @@ impl ConsoleState {
     }
 
     pub(crate) fn take_pending_history_index(&mut self, command: &str) -> Option<usize> {
-        let index = self.pending_history_index.take()?;
-        (self.cmd_history.get(index).map(String::as_str) == Some(command)).then_some(index)
+        let index = self.pending_history_index?;
+        if self.cmd_history.get(index).map(String::as_str) == Some(command) {
+            self.pending_history_index = None;
+            Some(index)
+        } else {
+            None
+        }
     }
 
     pub(crate) fn set_history_line_id(&mut self, index: usize, line_id: u64) {
