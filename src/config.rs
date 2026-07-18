@@ -175,10 +175,10 @@ pub struct ConsoleConfig {
     pub z_index: i32,
 
     // ── Persistence (requires the `persistent-history` feature) ──────────────
-    /// Path to the plain-text file used to persist command recall history.
-    /// Defaults to `"console_history.txt"` in the current working directory;
-    /// set to `None` to disable persistence even with the feature enabled. Has
-    /// no effect on web/wasm targets.
+    /// Path to the plain-text transcript used to persist console input and
+    /// output. Defaults to `"console_history.txt"` in the current working
+    /// directory; set to `None` to disable persistence even with the feature
+    /// enabled. Has no effect on web/wasm targets.
     #[cfg(feature = "persistent-history")]
     pub history_file: Option<PathBuf>,
 }

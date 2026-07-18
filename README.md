@@ -24,8 +24,8 @@ chill_bevy_console = "0.3"
 Optional features:
 
 - `embedded-font` — embed `UbuntuMono-R.ttf` so no font asset is required.
-- `persistent-history` — save and restore command recall history between
-  runs.
+- `persistent-history` — save and restore a plain-text console input/output
+  transcript between runs.
 - `resource-properties` — expose selected fields on Bevy resources through
   `res` with `#[derive(ConsoleResource)]`.
 

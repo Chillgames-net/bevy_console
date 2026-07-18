@@ -266,22 +266,20 @@ feature — `UbuntuMono-R.ttf` is compiled into the binary and used automaticall
 chill_bevy_console = { version = "0.3", features = ["embedded-font"] }
 ```
 
-## Persisting command recall between runs
+## Persisting console transcripts between runs
 
-Enable the `persistent-history` cargo feature to load and save submitted
-commands for Up/Down recall. Console display output, resources, aliases, and
-other runtime console state are never persisted by this crate. Restored command
-prompts are shown in the history panel at startup, but their previous output is
-not restored and the commands are not executed again.
+Enable the `persistent-history` cargo feature to load and save a console
+transcript for Up/Down recall. The transcript restores submitted command prompts
+and console output in their original order; commands are not executed again.
 
 ```toml
 chill_bevy_console = { version = "0.3", features = ["persistent-history"] }
 ```
 
-By default command recall is written to `console_history.txt` in the current
-working directory. The file is plain text, with one command per line, and is
-rewritten synchronously whenever recall history changes. Override the path or
-disable persistence per-app via
+By default the transcript is written to `console_history.txt` in the current
+working directory. It is plain text: submitted input uses a `> ` prefix and
+output uses a `< ` prefix. It is rewritten synchronously whenever the console
+history changes. Override the path or disable persistence per-app via
 `ConsoleConfig`:
 
 ```rust

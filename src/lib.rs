@@ -30,7 +30,7 @@
 //!
 //! - `embedded-font` — embed `UbuntuMono-R.ttf` in the binary and use it as the
 //!   default font, so consumers don't need to ship a font asset.
-//! - `persistent-history` — load and save entered commands to a plain-text file
+//! - `persistent-history` — load and save a plain-text input/output transcript
 //!   between runs. The path
 //!   is configured via [`ConsoleConfig::history_file`].
 //! - `resource-properties` — expose selected fields on Bevy resources through
