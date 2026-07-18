@@ -277,10 +277,9 @@ chill_bevy_console = { version = "0.3", features = ["persistent-history"] }
 ```
 
 By default, console history is saved to `console_history.txt` in the current
-working directory. Clearing output does not erase command recall; use
-`clear --history` to clear both. Override the save path and amount of history
-to keep with `ConsolePersistence`. The in-game output and command-recall
-limits remain core console settings on `ConsoleConfig`:
+working directory. Override the save path and amount of history to keep with
+`ConsolePersistence`. The in-game output and command-recall limits remain core
+console settings on `ConsoleConfig`:
 
 ```rust
 .add_plugins(ChillConsole {
