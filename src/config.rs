@@ -1,7 +1,5 @@
 use bevy::prelude::*;
 use std::collections::BTreeSet;
-#[cfg(feature = "persistent-history")]
-use std::path::PathBuf;
 
 /// A command provided by the console plugin rather than the host application.
 ///
@@ -71,7 +69,7 @@ impl BuiltinCommand {
     }
 }
 
-/// All visual and behavioral settings for the developer console.
+/// Visual and interaction settings for the developer console.
 ///
 /// Use `ConsoleConfig::default()` for the built-in dark/gold look, or set any
 /// field to customise every visual element before passing it to the plugin:
@@ -165,7 +163,7 @@ pub struct ConsoleConfig {
     /// Close the console when Enter is submitted with no input. Defaults to
     /// `false`.
     pub close_on_empty_submit: bool,
-    /// Maximum structured output lines kept in memory.
+    /// Maximum structured output lines kept in the in-game console buffer.
     pub max_history_lines: usize,
     /// Maximum submitted commands kept for Up/Down recall.
     pub max_command_history: usize,
@@ -173,14 +171,6 @@ pub struct ConsoleConfig {
     pub max_suggestions: usize,
     /// Z-index applied to the console overlay.
     pub z_index: i32,
-
-    // ── Persistence (requires the `persistent-history` feature) ──────────────
-    /// Path to the plain-text transcript used to persist console input and
-    /// output. Defaults to `"console_history.txt"` in the current working
-    /// directory; set to `None` to disable persistence even with the feature
-    /// enabled. Has no effect on web/wasm targets.
-    #[cfg(feature = "persistent-history")]
-    pub history_file: Option<PathBuf>,
 }
 
 impl ConsoleConfig {
@@ -284,9 +274,6 @@ impl Default for ConsoleConfig {
             max_command_history: 500,
             max_suggestions: 5,
             z_index: i32::MAX,
-
-            #[cfg(feature = "persistent-history")]
-            history_file: Some(PathBuf::from("console_history.txt")),
         }
     }
 }

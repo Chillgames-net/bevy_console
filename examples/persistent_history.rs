@@ -6,15 +6,14 @@
 //! Run with: `cargo run --example persistent_history --features persistent-history`
 
 use bevy::prelude::*;
-use chill_bevy_console::{ChillConsole, CommandArgs, ConsoleAppExt, ConsoleConfig};
+use chill_bevy_console::{ChillConsole, CommandArgs, ConsoleAppExt, ConsolePersistence};
 
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
         .add_plugins(ChillConsole {
-            config: ConsoleConfig {
-                #[cfg(feature = "persistent-history")]
-                history_file: Some("console_history.txt".into()),
+            persistence: ConsolePersistence {
+                history_file: "console_history.txt".into(),
                 ..default()
             },
             ..default()

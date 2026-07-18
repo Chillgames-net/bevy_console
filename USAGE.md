@@ -277,15 +277,25 @@ chill_bevy_console = { version = "0.3", features = ["persistent-history"] }
 ```
 
 By default the transcript is written to `console_history.txt` in the current
-working directory. It is plain text: submitted input uses a `> ` prefix and
-output uses a `< ` prefix. It is rewritten synchronously whenever the console
-history changes. Override the path or disable persistence per-app via
-`ConsoleConfig`:
+working directory. It uses plain-text typed input and output records. Command
+recall is saved independently of the bounded visual
+transcript, so clearing output does not erase recall; use `clear --history` to
+clear both. It is rewritten synchronously whenever the console history changes.
+Override the persistence path and disk transcript length via `ConsolePersistence`. The in-game output and
+command-recall limits remain core console settings on `ConsoleConfig`:
 
 ```rust
 .add_plugins(ChillConsole {
+    persistence: ConsolePersistence {
+        history_file: "/tmp/my_game_history.txt".into(),
+        max_saved_lines: 1_000,
+        max_line_length: Some(2_000),
+        // recall_only: true,
+        ..default()
+    },
     config: ConsoleConfig {
-        history_file: Some("/tmp/my_game_history.txt".into()),
+        max_history_lines: 5_000,
+        max_command_history: 1_000,
         ..default()
     },
     ..default()

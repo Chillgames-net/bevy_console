@@ -422,8 +422,17 @@ impl std::str::FromStr for ConsoleLevel {
 /// Why a line was written to the console.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ConsoleLineSource {
-    Command { name: String },
-    Log { target: String },
+    /// The prompt line echoed when a command is submitted.
+    CommandEcho {
+        name: String,
+    },
+    /// Output produced while executing a command.
+    Command {
+        name: String,
+    },
+    Log {
+        target: String,
+    },
     System,
 }
 

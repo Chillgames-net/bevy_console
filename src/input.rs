@@ -547,13 +547,15 @@ pub(crate) fn execute_pending_commands(world: &mut World) {
         return;
     };
 
-    let source = ConsoleLineSource::Command {
+    let command_source = ConsoleLineSource::Command {
         name: command_name.clone(),
     };
     write_line(
         world,
         ConsoleLevel::Info,
-        source.clone(),
+        ConsoleLineSource::CommandEcho {
+            name: command_name.clone(),
+        },
         format!("> {cmd_str}"),
     );
     if let Some(history_index) = queued.history_index.or_else(|| {
@@ -583,7 +585,7 @@ pub(crate) fn execute_pending_commands(world: &mut World) {
         .iter()
         .any(|(level, _)| *level == ConsoleLevel::Error);
     for (level, text) in result {
-        write_line(world, level, source.clone(), text);
+        write_line(world, level, command_source.clone(), text);
     }
     world.write_message(ConsoleCommandExecuted {
         input: cmd_str,
