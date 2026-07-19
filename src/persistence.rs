@@ -43,7 +43,7 @@ impl Default for ConsolePersistence {
     fn default() -> Self {
         Self {
             history_file: PathBuf::from("console_history.txt"),
-            max_saved_lines: 2_000,
+            max_saved_lines: 256,
             recall_only: false,
             max_line_length: None,
         }

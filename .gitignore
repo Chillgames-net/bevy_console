@@ -4,3 +4,4 @@
 .idea
 /derive/target
 /tests/renamed_dependency/Cargo.lock
+console_history.txt

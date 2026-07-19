@@ -6,6 +6,8 @@ A configurable developer console plugin for [Bevy](https://bevyengine.org) games
 
 Press `` ` `` (backtick) to toggle the console open and closed.
 
+![Console command completion](assets/screenshots/console-completions.png)
+
 ## Version
 
 | `chill_bevy_console` | `bevy` |
