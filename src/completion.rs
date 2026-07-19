@@ -122,15 +122,19 @@ fn argument_completions(
 
     if let Some(completer) = completer {
         let request = CompletionRequest::new(parsed.clone(), command.to_owned(), argument_index);
-        return match world.run_system_with(completer, request) {
-            Ok(items) => {
-                rank_completion_items(items, parsed.active_fragment(), parsed.replacement_range())
+        match world.run_system_with(completer, request) {
+            Ok(items) if !items.is_empty() => {
+                return rank_completion_items(
+                    items,
+                    parsed.active_fragment(),
+                    parsed.replacement_range(),
+                );
             }
+            Ok(_) => {}
             Err(error) => {
                 warn!("chill_bevy_console: command completer failed: {error}");
-                Vec::new()
             }
-        };
+        }
     }
 
     let Some(argument) = argument else {
@@ -399,7 +403,7 @@ mod tests {
     }
 
     #[test]
-    fn empty_command_completer_suppresses_static_choices() {
+    fn empty_command_completer_falls_back_to_static_choices() {
         let mut app = App::new();
         app.insert_resource(ConsoleState::default())
             .insert_resource(ConsoleConfig::default())
@@ -417,11 +421,14 @@ mod tests {
         }
         refresh_completions(app.world_mut());
 
-        assert!(
+        assert_eq!(
             app.world()
                 .resource::<ConsoleState>()
                 .completion_items
-                .is_empty()
+                .iter()
+                .map(|item| item.label.as_str())
+                .collect::<Vec<_>>(),
+            ["high", "low"]
         );
     }
 

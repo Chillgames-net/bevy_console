@@ -78,7 +78,7 @@ pub use model::{
 pub use parser::{ParseError, ParsedInput, ParsedToken, QuoteStyle};
 #[cfg(feature = "persistent-history")]
 pub use persistence::ConsolePersistence;
-pub use registry::{CommandDef, CommandExecutor, ConsoleRegistry};
+pub use registry::ConsoleRegistry;
 pub use state::ConsoleState;
 
 #[cfg(feature = "resource-properties")]
@@ -162,7 +162,7 @@ pub trait ConsoleAppExt {
     ///     ConsoleCommand::new("say", "say <text> - echo text", say_cmd),
     /// );
     /// ```
-    fn add_console_command(&mut self, command: impl ConsoleCommandRegistration) -> &mut Self;
+    fn add_console_command(&mut self, command: ConsoleCommand) -> &mut Self;
 
     /// Register the opt-in console properties generated for a Bevy resource.
     #[cfg(feature = "resource-properties")]
@@ -170,8 +170,17 @@ pub trait ConsoleAppExt {
 }
 
 impl ConsoleAppExt for App {
-    fn add_console_command(&mut self, command: impl ConsoleCommandRegistration) -> &mut Self {
-        command.register(self);
+    fn add_console_command(&mut self, command: ConsoleCommand) -> &mut Self {
+        self.init_resource::<ConsoleRegistry>();
+        let system_id = self.world_mut().register_boxed_system(command.system);
+        let completer_id = command
+            .completer
+            .map(|completer| self.world_mut().register_boxed_system(completer));
+        self.world_mut().resource_mut::<ConsoleRegistry>().register(
+            command.spec,
+            system_id,
+            completer_id,
+        );
         self
     }
 
@@ -180,65 +189,6 @@ impl ConsoleAppExt for App {
         resource_properties::register_resource::<R>(self);
         self
     }
-}
-
-/// A command builder that can be registered with
-/// [`ConsoleAppExt::add_console_command`].
-#[doc(hidden)]
-pub trait ConsoleCommandRegistration {
-    /// Registers this command in an app.
-    fn register(self, app: &mut App);
-}
-
-impl<S, M, O> ConsoleCommandRegistration for ConsoleCommand<S, M, O>
-where
-    S: IntoSystem<In<Args>, O, M> + 'static,
-    O: Into<ConsoleResult> + 'static,
-{
-    fn register(self, app: &mut App) {
-        app.init_resource::<ConsoleRegistry>();
-        let system_id = app
-            .world_mut()
-            .register_system(self.system.map(into_console_result::<O>));
-        app.world_mut()
-            .resource_mut::<ConsoleRegistry>()
-            .register_result_spec(self.spec, system_id);
-    }
-}
-
-impl<S, M, O, C, CM, CO> ConsoleCommandRegistration
-    for ConsoleCommand<S, M, O, model::WithCompleter<C>, CM, CO>
-where
-    S: IntoSystem<In<Args>, O, M> + 'static,
-    O: Into<ConsoleResult> + 'static,
-    C: IntoSystem<ConsoleCompletionRequest, CO, CM> + 'static,
-    CO: IntoIterator + 'static,
-    CO::Item: Into<CompletionItem>,
-{
-    fn register(self, app: &mut App) {
-        app.init_resource::<ConsoleRegistry>();
-        let system_id = app
-            .world_mut()
-            .register_system(self.system.map(into_console_result::<O>));
-        let completer_id = app
-            .world_mut()
-            .register_system(self.completer.0.map(into_completion_items::<CO>));
-        app.world_mut()
-            .resource_mut::<ConsoleRegistry>()
-            .register_result_spec_with_completer(self.spec, system_id, completer_id);
-    }
-}
-
-fn into_console_result<O: Into<ConsoleResult>>(output: O) -> ConsoleResult {
-    output.into()
-}
-
-fn into_completion_items<O>(items: O) -> Vec<CompletionItem>
-where
-    O: IntoIterator,
-    O::Item: Into<CompletionItem>,
-{
-    items.into_iter().map(Into::into).collect()
 }
 
 // ── Run condition ──────────────────────────────────────────────────────────────

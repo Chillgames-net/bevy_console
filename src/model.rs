@@ -2,6 +2,7 @@
 //! logging, and the console UI.
 
 use crate::parser::ParsedInput;
+use bevy::ecs::system::{BoxedSystem, IntoSystem};
 use bevy::prelude::{ButtonInput, KeyCode, Message, Resource};
 use std::collections::{BTreeMap, VecDeque};
 use std::ops::Range;
@@ -111,51 +112,39 @@ impl CommandSpec {
 ///
 /// Register the completed builder through
 /// [`crate::ConsoleAppExt::add_console_command`].
-pub struct ConsoleCommand<S, M, O, C = NoCompleter, CM = (), CO = ()> {
+pub struct ConsoleCommand {
     pub(crate) spec: CommandSpec,
-    pub(crate) system: S,
-    pub(crate) completer: C,
-    marker: std::marker::PhantomData<fn() -> (M, O, CM, CO)>,
+    pub(crate) system: BoxedSystem<bevy::prelude::In<crate::Args>, crate::ConsoleResult>,
+    pub(crate) completer: Option<BoxedSystem<crate::ConsoleCompletionRequest, Vec<CompletionItem>>>,
 }
 
-/// Marker used by [`ConsoleCommand`] before a completion system is supplied.
-#[doc(hidden)]
-pub struct NoCompleter;
-
-/// Internal type-state wrapper for a command completion system.
-#[doc(hidden)]
-pub struct WithCompleter<C>(pub(crate) C);
-
-impl<S, M, O> ConsoleCommand<S, M, O, NoCompleter>
-where
-    S: bevy::prelude::IntoSystem<bevy::prelude::In<crate::Args>, O, M>,
-{
+impl ConsoleCommand {
     /// Creates a command builder with no dynamic completion system.
-    pub fn new(name: impl Into<String>, help: &'static str, system: S) -> Self {
+    pub fn new<S, M, O>(name: impl Into<String>, help: &'static str, system: S) -> Self
+    where
+        S: IntoSystem<bevy::prelude::In<crate::Args>, O, M> + 'static,
+        O: Into<crate::ConsoleResult> + 'static,
+    {
         Self {
             spec: CommandSpec::new(name).help(help),
-            system,
-            completer: NoCompleter,
-            marker: std::marker::PhantomData,
+            system: Box::new(IntoSystem::into_system(
+                system.map(into_console_result::<O>),
+            )),
+            completer: None,
         }
     }
-}
 
-impl<S, M, O, C, CM, CO> ConsoleCommand<S, M, O, C, CM, CO> {
     /// Attaches the command's dynamic completion system.
-    pub fn with_completions<C2, CM2, CO2>(
-        self,
-        completer: C2,
-    ) -> ConsoleCommand<S, M, O, WithCompleter<C2>, CM2, CO2>
+    pub fn with_completions<C, M, O>(mut self, completer: C) -> Self
     where
-        C2: bevy::prelude::IntoSystem<crate::ConsoleCompletionRequest, CO2, CM2>,
+        C: IntoSystem<crate::ConsoleCompletionRequest, O, M> + 'static,
+        O: IntoIterator + 'static,
+        O::Item: Into<CompletionItem>,
     {
-        ConsoleCommand {
-            spec: self.spec,
-            system: self.system,
-            completer: WithCompleter(completer),
-            marker: std::marker::PhantomData,
-        }
+        self.completer = Some(Box::new(IntoSystem::into_system(
+            completer.map(into_completion_items::<O>),
+        )));
+        self
     }
 
     /// Sets the short description shown alongside command completion.
@@ -187,6 +176,18 @@ impl<S, M, O, C, CM, CO> ConsoleCommand<S, M, O, C, CM, CO> {
         self.spec = self.spec.hidden();
         self
     }
+}
+
+fn into_console_result<O: Into<crate::ConsoleResult>>(output: O) -> crate::ConsoleResult {
+    output.into()
+}
+
+fn into_completion_items<O>(items: O) -> Vec<CompletionItem>
+where
+    O: IntoIterator,
+    O::Item: Into<CompletionItem>,
+{
+    items.into_iter().map(Into::into).collect()
 }
 
 /// The source that requested a command.

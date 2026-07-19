@@ -4,13 +4,13 @@ use bevy::prelude::*;
 use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Debug, Clone, Copy)]
-pub enum CommandExecutor {
+pub(crate) enum CommandExecutor {
     Structured(SystemId<In<Args>, ConsoleResult>),
     #[cfg(feature = "resource-properties")]
     Exclusive(fn(&mut World, Args) -> ConsoleResult),
 }
 
-pub struct CommandDef {
+pub(crate) struct CommandDef {
     /// Structured metadata used by help and completion.
     pub(crate) spec: CommandSpec,
     pub(crate) executor: CommandExecutor,
@@ -23,30 +23,17 @@ pub struct CommandDef {
 /// commands through [`crate::ConsoleAppExt`].
 #[derive(Resource, Default)]
 pub struct ConsoleRegistry {
-    pub commands: BTreeMap<String, CommandDef>,
+    pub(crate) commands: BTreeMap<String, CommandDef>,
 }
 
 impl ConsoleRegistry {
-    /// Registers a command that returns structured lines with severity levels.
-    pub(crate) fn register_result_spec(
+    pub(crate) fn register(
         &mut self,
         spec: CommandSpec,
         system_id: SystemId<In<Args>, ConsoleResult>,
+        completer: Option<SystemId<ConsoleCompletionRequest, Vec<CompletionItem>>>,
     ) {
-        self.insert(spec, CommandExecutor::Structured(system_id));
-    }
-
-    pub(crate) fn register_result_spec_with_completer(
-        &mut self,
-        spec: CommandSpec,
-        system_id: SystemId<In<Args>, ConsoleResult>,
-        completer: SystemId<ConsoleCompletionRequest, Vec<CompletionItem>>,
-    ) {
-        self.insert_with_completer(
-            spec,
-            CommandExecutor::Structured(system_id),
-            Some(completer),
-        );
+        self.insert_with_completer(spec, CommandExecutor::Structured(system_id), completer);
     }
 
     #[cfg(feature = "resource-properties")]
@@ -57,10 +44,6 @@ impl ConsoleRegistry {
         completer: SystemId<ConsoleCompletionRequest, Vec<CompletionItem>>,
     ) {
         self.insert_with_completer(spec, CommandExecutor::Exclusive(command), Some(completer));
-    }
-
-    fn insert(&mut self, spec: CommandSpec, executor: CommandExecutor) {
-        self.insert_with_completer(spec, executor, None);
     }
 
     fn insert_with_completer(
@@ -81,14 +64,19 @@ impl ConsoleRegistry {
     }
 
     /// Finds a command using its name or an alias, case-insensitively.
-    pub fn get(&self, name: &str) -> Option<&CommandDef> {
+    pub(crate) fn get(&self, name: &str) -> Option<&CommandDef> {
         self.resolve_name(name)
             .and_then(|name| self.commands.get(name))
     }
 
-    pub fn get_mut(&mut self, name: &str) -> Option<&mut CommandDef> {
-        let canonical = self.resolve_name(name)?.to_owned();
-        self.commands.get_mut(&canonical)
+    /// Returns whether a command or registered alias exists, case-insensitively.
+    pub fn contains(&self, name: &str) -> bool {
+        self.resolve_name(name).is_some()
+    }
+
+    /// Iterates over canonical command names in sorted order.
+    pub fn command_names(&self) -> impl Iterator<Item = &str> {
+        self.commands.keys().map(String::as_str)
     }
 
     fn prepare_registration(&self, spec: &CommandSpec) -> String {
@@ -161,14 +149,22 @@ mod tests {
         let first = world.register_system(noop);
         let second = world.register_system(noop);
         let mut registry = ConsoleRegistry::default();
-        registry.register_result_spec(
+        registry.register(
             CommandSpec::new("map").help("map").alias("ChangeLevel"),
             first,
+            None,
         );
-        registry.register_result_spec(CommandSpec::new("map").help("map").alias("LoadMap"), second);
+        registry.register(
+            CommandSpec::new("map").help("map").alias("LoadMap"),
+            second,
+            None,
+        );
 
         assert!(registry.get("changelevel").is_none());
         assert!(registry.get("LOADMAP").is_some());
+        assert!(!registry.contains("changelevel"));
+        assert!(registry.contains("LOADMAP"));
+        assert_eq!(registry.command_names().collect::<Vec<_>>(), ["map"]);
     }
 
     #[test]
@@ -178,8 +174,8 @@ mod tests {
         let first = world.register_system(noop);
         let second = world.register_system(noop);
         let mut registry = ConsoleRegistry::default();
-        registry.register_result_spec(CommandSpec::new("foo"), first);
-        registry.register_result_spec(CommandSpec::new("bar").alias("foo"), second);
+        registry.register(CommandSpec::new("foo"), first, None);
+        registry.register(CommandSpec::new("bar").alias("foo"), second, None);
     }
 
     #[test]
@@ -189,7 +185,7 @@ mod tests {
         let first = world.register_system(noop);
         let second = world.register_system(noop);
         let mut registry = ConsoleRegistry::default();
-        registry.register_result_spec(CommandSpec::new("bar").alias("foo"), first);
-        registry.register_result_spec(CommandSpec::new("foo"), second);
+        registry.register(CommandSpec::new("bar").alias("foo"), first, None);
+        registry.register(CommandSpec::new("foo"), second, None);
     }
 }

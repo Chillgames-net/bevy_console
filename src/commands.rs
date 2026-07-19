@@ -147,7 +147,7 @@ fn alias_cmd(
             if args.len() < 3 {
                 return ConsoleResult::error("Usage: alias set <name> <command...>");
             }
-            if registry.get(name).is_some() {
+            if registry.contains(name) {
                 return ConsoleResult::error(format!(
                     "Cannot create alias `{}`: it is already a registered command",
                     name
@@ -373,12 +373,13 @@ mod tests {
         let help = world.register_system(help_cmd);
         {
             let mut registry = world.resource_mut::<ConsoleRegistry>();
-            registry.register_result_spec(CommandSpec::new("echo").help("echo <text>"), echo);
-            registry.register_result_spec(
+            registry.register(CommandSpec::new("echo").help("echo <text>"), echo, None);
+            registry.register(
                 CommandSpec::new("described-echo")
                     .help("described-echo <text>")
                     .summary("Echo text to the console"),
                 described_echo,
+                None,
             );
         }
 
