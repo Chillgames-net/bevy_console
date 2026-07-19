@@ -19,6 +19,7 @@ include = [
     "src/**",
     "examples/**",
     "assets/UbuntuMono-R.ttf",
+    "assets/screenshots/**",
     "Cargo.toml",
     "README.md",
     "USAGE.md",
