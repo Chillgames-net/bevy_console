@@ -270,7 +270,7 @@ impl Default for ConsoleConfig {
 
             toggle_key: KeyCode::Backquote,
             close_on_empty_submit: false,
-            max_history_lines: 2_000,
+            max_history_lines: 256,
             max_command_history: 500,
             max_suggestions: 5,
             z_index: i32::MAX,

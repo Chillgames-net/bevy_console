@@ -606,7 +606,7 @@ pub struct ConsoleBuffer {
 
 impl Default for ConsoleBuffer {
     fn default() -> Self {
-        Self::new(2_000)
+        Self::new(256)
     }
 }
 
