@@ -201,8 +201,8 @@ mod tests {
     use super::{has_dirty_completion, match_rank, refresh_completions};
     use crate::ui::ConsoleInput;
     use crate::{
-        ArgumentSpec, BuiltinCommand, CommandArgs, CommandSpec, CompletionItem, ConsoleAliases,
-        ConsoleAppExt, ConsoleCompletionRequest, ConsoleConfig, ConsoleRegistry, ConsoleState,
+        ArgumentSpec, BuiltinCommand, CommandArgs, CompletionItem, ConsoleAliases, ConsoleAppExt,
+        ConsoleCommand, ConsoleCompletionRequest, ConsoleConfig, ConsoleRegistry, ConsoleState,
     };
     use bevy::prelude::*;
     use bevy::text::EditableText;
@@ -249,28 +249,21 @@ mod tests {
         app.insert_resource(ConsoleState::default());
         app.insert_resource(ConsoleConfig::default());
         app.init_resource::<ConsoleAliases>();
-        app.add_console_command_spec(
-            CommandSpec::new("quality")
-                .help("quality <level>")
-                .args([ArgumentSpec::new("level").choices(["low", "medium", "high"])]),
-            noop,
+        app.add_console_command(
+            ConsoleCommand::new("quality", "quality <level>", noop)
+                .with_args([ArgumentSpec::new("level").choices(["low", "medium", "high"])]),
         )
-        .add_console_command_spec(
-            CommandSpec::new("map")
-                .help("map <name>")
-                .args([ArgumentSpec::new("name")]),
-            noop,
+        .add_console_command(
+            ConsoleCommand::new("map", "map <name>", noop)
+                .with_args([ArgumentSpec::new("name")])
+                .with_completions(level_completer),
         )
-        .add_console_command_spec(
-            CommandSpec::new("teleport")
-                .help("teleport <target> <mode>")
-                .args([
-                    ArgumentSpec::new("target"),
-                    ArgumentSpec::new("mode").choices(["walk", "snap"]),
-                ]),
-            noop,
-        )
-        .add_console_completer("map", level_completer);
+        .add_console_command(
+            ConsoleCommand::new("teleport", "teleport <target> <mode>", noop).with_args([
+                ArgumentSpec::new("target"),
+                ArgumentSpec::new("mode").choices(["walk", "snap"]),
+            ]),
+        );
 
         {
             let mut state = app.world_mut().resource_mut::<ConsoleState>();
@@ -320,13 +313,11 @@ mod tests {
             .insert_resource(ConsoleState::default())
             .insert_resource(ConsoleConfig::default())
             .init_resource::<ConsoleAliases>()
-            .add_console_command_spec(
-                CommandSpec::new("map")
-                    .help("map <name>")
-                    .args([ArgumentSpec::new("name").choices(["static_map"])]),
-                noop,
-            )
-            .add_console_completer("map", level_completer);
+            .add_console_command(
+                ConsoleCommand::new("map", "map <name>", noop)
+                    .with_args([ArgumentSpec::new("name").choices(["static_map"])])
+                    .with_completions(level_completer),
+            );
 
         {
             let mut state = app.world_mut().resource_mut::<ConsoleState>();
@@ -347,22 +338,47 @@ mod tests {
     }
 
     #[test]
+    fn builder_completer_runs_through_a_command_alias() {
+        let mut app = App::new();
+        app.insert_resource(Levels(vec!["forest"]))
+            .insert_resource(ConsoleState::default())
+            .insert_resource(ConsoleConfig::default())
+            .init_resource::<ConsoleAliases>()
+            .add_console_command(
+                ConsoleCommand::new("map", "map <name>", noop)
+                    .with_alias("changelevel")
+                    .with_args([ArgumentSpec::new("name")])
+                    .with_completions(level_completer),
+            );
+
+        {
+            let mut state = app.world_mut().resource_mut::<ConsoleState>();
+            state.input = "changelevel fo".into();
+            state.mark_input_changed();
+        }
+        refresh_completions(app.world_mut());
+
+        assert_eq!(
+            app.world().resource::<ConsoleState>().completion_items[0].label,
+            "forest"
+        );
+    }
+
+    #[test]
     fn command_completer_receives_the_active_index_and_preceding_arguments() {
         let mut app = App::new();
         app.insert_resource(ConsoleState::default())
             .insert_resource(ConsoleConfig::default())
             .init_resource::<ConsoleAliases>()
-            .add_console_command_spec(
-                CommandSpec::new("route")
-                    .help("route <from> <via> <to>")
-                    .args([
+            .add_console_command(
+                ConsoleCommand::new("route", "route <from> <via> <to>", noop)
+                    .with_args([
                         ArgumentSpec::new("from"),
                         ArgumentSpec::new("via"),
                         ArgumentSpec::new("to"),
-                    ]),
-                noop,
-            )
-            .add_console_completer("route", indexed_completer);
+                    ])
+                    .with_completions(indexed_completer),
+            );
 
         for (input, expected) in [
             ("route ", "route:0:-"),
@@ -388,13 +404,11 @@ mod tests {
         app.insert_resource(ConsoleState::default())
             .insert_resource(ConsoleConfig::default())
             .init_resource::<ConsoleAliases>()
-            .add_console_command_spec(
-                CommandSpec::new("quality")
-                    .help("quality <level>")
-                    .args([ArgumentSpec::new("level").choices(["low", "high"])]),
-                noop,
-            )
-            .add_console_completer("quality", empty_completer);
+            .add_console_command(
+                ConsoleCommand::new("quality", "quality <level>", noop)
+                    .with_args([ArgumentSpec::new("level").choices(["low", "high"])])
+                    .with_completions(empty_completer),
+            );
 
         {
             let mut state = app.world_mut().resource_mut::<ConsoleState>();
@@ -417,14 +431,11 @@ mod tests {
         app.insert_resource(ConsoleState::default())
             .insert_resource(ConsoleConfig::default())
             .init_resource::<ConsoleAliases>()
-            .add_console_command_spec(
-                CommandSpec::new("teleport")
-                    .help("teleport <target> <mode>")
-                    .args([
-                        ArgumentSpec::new("target").choices(["player"]),
-                        ArgumentSpec::new("mode").choices(["walk", "snap"]),
-                    ]),
-                noop,
+            .add_console_command(
+                ConsoleCommand::new("teleport", "teleport <target> <mode>", noop).with_args([
+                    ArgumentSpec::new("target").choices(["player"]),
+                    ArgumentSpec::new("mode").choices(["walk", "snap"]),
+                ]),
             );
         // Simulate the editor retaining its old cursor until queued edits are
         // applied later in the update cycle.
@@ -457,8 +468,8 @@ mod tests {
         app.insert_resource(ConsoleState::default())
             .insert_resource(ConsoleConfig::default())
             .init_resource::<ConsoleAliases>()
-            .add_console_command("visible", "visible", noop)
-            .add_console_command_spec(CommandSpec::new("hidden").help("hidden").hidden(), noop);
+            .add_console_command(ConsoleCommand::new("visible", "visible", noop))
+            .add_console_command(ConsoleCommand::new("hidden", "hidden", noop).hidden());
         app.world_mut()
             .resource_mut::<ConsoleState>()
             .mark_input_changed();
@@ -483,9 +494,9 @@ mod tests {
                 ..default()
             })
             .init_resource::<ConsoleAliases>()
-            .add_console_command("alpha", "alpha", noop)
-            .add_console_command("beta", "beta", noop)
-            .add_console_command("gamma", "gamma", noop);
+            .add_console_command(ConsoleCommand::new("alpha", "alpha", noop))
+            .add_console_command(ConsoleCommand::new("beta", "beta", noop))
+            .add_console_command(ConsoleCommand::new("gamma", "gamma", noop));
         app.world_mut()
             .resource_mut::<ConsoleState>()
             .mark_input_changed();
@@ -508,7 +519,7 @@ mod tests {
                 ..default()
             })
             .init_resource::<ConsoleAliases>()
-            .add_console_command("alpha", "alpha", noop);
+            .add_console_command(ConsoleCommand::new("alpha", "alpha", noop));
         app.world_mut()
             .resource_mut::<ConsoleState>()
             .mark_input_changed();
@@ -528,8 +539,8 @@ mod tests {
             .insert_resource(crate::BuiltinCommands::from([BuiltinCommand::Alias]))
             .init_resource::<ConsoleAliases>();
         crate::commands::plugin(&mut app);
-        app.add_console_command("save", "save - save the game", noop)
-            .add_console_command_spec(CommandSpec::new("hidden").help("hidden").hidden(), noop);
+        app.add_console_command(ConsoleCommand::new("save", "save - save the game", noop))
+            .add_console_command(ConsoleCommand::new("hidden", "hidden", noop).hidden());
         app.add_systems(Update, refresh_completions.run_if(has_dirty_completion));
 
         {

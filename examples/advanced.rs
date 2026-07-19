@@ -10,7 +10,7 @@
 
 use bevy::prelude::*;
 use chill_bevy_console::{
-    ArgumentSpec, BuiltinCommand, ChillConsole, CommandArgs, CommandSpec, ConsoleAppExt,
+    ArgumentSpec, BuiltinCommand, ChillConsole, CommandArgs, ConsoleAppExt, ConsoleCommand,
     ConsoleCompletionRequest, ConsoleResource,
 };
 
@@ -33,15 +33,13 @@ fn main() {
         })
         .add_plugins(ChillConsole::default().with_builtin_commands([BuiltinCommand::Res]))
         .add_console_resource::<DebugSettings>()
-        .add_console_command_spec(
-            CommandSpec::new("map")
-                .help("map <name> - load a map")
-                .summary("Load a map by name")
-                .alias("changelevel")
-                .args([ArgumentSpec::new("name").help("Map asset name")]),
-            load_map,
+        .add_console_command(
+            ConsoleCommand::new("map", "map <name> - load a map", load_map)
+                .with_summary("Load a map by name")
+                .with_alias("changelevel")
+                .with_args([ArgumentSpec::new("name").help("Map asset name")])
+                .with_completions(complete_maps),
         )
-        .add_console_completer("map", complete_maps)
         .add_systems(Startup, setup)
         .run();
 }

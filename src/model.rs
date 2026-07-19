@@ -52,10 +52,9 @@ impl ArgumentSpec {
     }
 }
 
-/// Structured metadata for a command. The executor remains a normal Bevy
-/// system, registered separately by [`crate::ConsoleAppExt`].
+/// Structured metadata retained by the registry after a command is registered.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CommandSpec {
+pub(crate) struct CommandSpec {
     pub name: String,
     pub usage: &'static str,
     pub summary: &'static str,
@@ -108,6 +107,88 @@ impl CommandSpec {
     }
 }
 
+/// Builder for a console command and its optional completion system.
+///
+/// Register the completed builder through
+/// [`crate::ConsoleAppExt::add_console_command`].
+pub struct ConsoleCommand<S, M, O, C = NoCompleter, CM = (), CO = ()> {
+    pub(crate) spec: CommandSpec,
+    pub(crate) system: S,
+    pub(crate) completer: C,
+    marker: std::marker::PhantomData<fn() -> (M, O, CM, CO)>,
+}
+
+/// Marker used by [`ConsoleCommand`] before a completion system is supplied.
+#[doc(hidden)]
+pub struct NoCompleter;
+
+/// Internal type-state wrapper for a command completion system.
+#[doc(hidden)]
+pub struct WithCompleter<C>(pub(crate) C);
+
+impl<S, M, O> ConsoleCommand<S, M, O, NoCompleter>
+where
+    S: bevy::prelude::IntoSystem<bevy::prelude::In<crate::Args>, O, M>,
+{
+    /// Creates a command builder with no dynamic completion system.
+    pub fn new(name: impl Into<String>, help: &'static str, system: S) -> Self {
+        Self {
+            spec: CommandSpec::new(name).help(help),
+            system,
+            completer: NoCompleter,
+            marker: std::marker::PhantomData,
+        }
+    }
+}
+
+impl<S, M, O, C, CM, CO> ConsoleCommand<S, M, O, C, CM, CO> {
+    /// Attaches the command's dynamic completion system.
+    pub fn with_completions<C2, CM2, CO2>(
+        self,
+        completer: C2,
+    ) -> ConsoleCommand<S, M, O, WithCompleter<C2>, CM2, CO2>
+    where
+        C2: bevy::prelude::IntoSystem<crate::ConsoleCompletionRequest, CO2, CM2>,
+    {
+        ConsoleCommand {
+            spec: self.spec,
+            system: self.system,
+            completer: WithCompleter(completer),
+            marker: std::marker::PhantomData,
+        }
+    }
+
+    /// Sets the short description shown alongside command completion.
+    pub fn with_summary(mut self, summary: &'static str) -> Self {
+        self.spec = self.spec.summary(summary);
+        self
+    }
+
+    /// Sets extended text displayed by the built-in help command.
+    pub fn with_long_help(mut self, help: &'static str) -> Self {
+        self.spec = self.spec.long_help(help);
+        self
+    }
+
+    /// Adds an alternate name for this command.
+    pub fn with_alias(mut self, alias: &'static str) -> Self {
+        self.spec = self.spec.alias(alias);
+        self
+    }
+
+    /// Sets structured metadata for the command arguments.
+    pub fn with_args(mut self, args: impl IntoIterator<Item = ArgumentSpec>) -> Self {
+        self.spec = self.spec.args(args);
+        self
+    }
+
+    /// Hides this command from command completion.
+    pub fn hidden(mut self) -> Self {
+        self.spec = self.spec.hidden();
+        self
+    }
+}
+
 /// The source that requested a command.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum CommandOrigin {
@@ -139,8 +220,9 @@ pub(crate) struct QueuedConsoleRequest {
     pub history_index: Option<usize>,
 }
 
-/// User-defined command expansions. Unlike aliases declared on `CommandSpec`,
-/// these can be created and removed at runtime through the `alias` commands.
+/// User-defined command expansions. Unlike aliases declared during command
+/// registration, these can be created and removed at runtime through the
+/// `alias` commands.
 #[derive(Debug, Default, Resource)]
 pub struct ConsoleAliases {
     aliases: BTreeMap<String, String>,
@@ -380,6 +462,11 @@ impl CompletionRequest {
     /// The decoded text of the argument currently being completed.
     pub fn active_fragment(&self) -> &str {
         self.parsed.active_fragment()
+    }
+
+    /// The source range that completion should replace.
+    pub fn replacement_range(&self) -> Range<usize> {
+        self.parsed.replacement_range()
     }
 }
 

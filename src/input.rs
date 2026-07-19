@@ -350,8 +350,8 @@ mod tests {
             .init_resource::<ConsoleBinds>()
             .init_resource::<ConsoleCommandQueue>()
             .add_message::<crate::ConsoleCommandExecuted>()
-            .add_console_command("echo", "echo <text>", echo)
-            .add_console_command("status", "status", structured)
+            .add_console_command(crate::ConsoleCommand::new("echo", "echo <text>", echo))
+            .add_console_command(crate::ConsoleCommand::new("status", "status", structured))
             .add_plugins(crate::commands::plugin);
         app
     }

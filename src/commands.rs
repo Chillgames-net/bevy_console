@@ -1,6 +1,6 @@
 use crate::{
-    ArgumentSpec, BuiltinCommand, CommandArgs, CommandSpec, CompletionItem, CompletionRequest,
-    ConsoleAliases, ConsoleAppExt, ConsoleBinds, ConsoleBuffer, ConsoleCompletionRequest,
+    ArgumentSpec, BuiltinCommand, CommandArgs, CompletionItem, CompletionRequest, ConsoleAliases,
+    ConsoleAppExt, ConsoleBinds, ConsoleBuffer, ConsoleCommand, ConsoleCompletionRequest,
     ConsoleKeyBinding, ConsoleKeyModifiers, ConsoleRegistry, ConsoleResult,
     completion::{runtime_command_completions, static_completion_items},
 };
@@ -10,49 +10,53 @@ use bevy::reflect::{FromReflect, Typed, enums::DynamicEnum};
 pub fn plugin(app: &mut App) {
     let enabled = app.world().resource::<crate::BuiltinCommands>().clone();
     if enabled.contains(&BuiltinCommand::Clear) {
-        app.add_console_command_spec(
-            CommandSpec::new("clear")
-                .help("clear - clear the console output")
-                .summary("Clear the console output"),
-            clear_cmd,
+        app.add_console_command(
+            ConsoleCommand::new("clear", "clear - clear the console output", clear_cmd)
+                .with_summary("Clear the console output"),
         );
     }
     if enabled.contains(&BuiltinCommand::Help) {
-        app.add_console_command_spec(
-            CommandSpec::new("help")
-                .help("help [command] - show available commands or command help")
-                .summary("Show command help")
-                .args([ArgumentSpec::new("command").help("Command to describe")]),
-            help_cmd,
+        app.add_console_command(
+            ConsoleCommand::new(
+                "help",
+                "help [command] - show available commands or command help",
+                help_cmd,
+            )
+            .with_summary("Show command help")
+            .with_args([ArgumentSpec::new("command").help("Command to describe")]),
         );
     }
     if enabled.contains(&BuiltinCommand::Alias) {
-        app.add_console_command_spec(
-            CommandSpec::new("alias")
-                .help("alias <list|get|set|remove> [name] [command...] - manage runtime aliases")
-                .summary("Manage runtime command aliases")
-                .args([
-                    ArgumentSpec::new("operation"),
-                    ArgumentSpec::new("name").help("Alias name"),
-                    ArgumentSpec::new("command").help("Command expansion"),
-                ]),
-            alias_cmd,
-        )
-        .add_console_completer("alias", complete_alias);
+        app.add_console_command(
+            ConsoleCommand::new(
+                "alias",
+                "alias <list|get|set|remove> [name] [command...] - manage runtime aliases",
+                alias_cmd,
+            )
+            .with_summary("Manage runtime command aliases")
+            .with_args([
+                ArgumentSpec::new("operation"),
+                ArgumentSpec::new("name").help("Alias name"),
+                ArgumentSpec::new("command").help("Command expansion"),
+            ])
+            .with_completions(complete_alias),
+        );
     }
     if enabled.contains(&BuiltinCommand::Bind) {
-        app.add_console_command_spec(
-            CommandSpec::new("bind")
-                .help("bind <list|get|set|remove> [key] [command...] - manage key bindings")
-                .summary("Manage runtime key bindings")
-                .args([
-                    ArgumentSpec::new("operation"),
-                    ArgumentSpec::new("key").help("Key binding, e.g. meta+KeyW or F1"),
-                    ArgumentSpec::new("command").help("Command to run"),
-                ]),
-            bind_cmd,
-        )
-        .add_console_completer("bind", complete_bind);
+        app.add_console_command(
+            ConsoleCommand::new(
+                "bind",
+                "bind <list|get|set|remove> [key] [command...] - manage key bindings",
+                bind_cmd,
+            )
+            .with_summary("Manage runtime key bindings")
+            .with_args([
+                ArgumentSpec::new("operation"),
+                ArgumentSpec::new("key").help("Key binding, e.g. meta+KeyW or F1"),
+                ArgumentSpec::new("command").help("Command to run"),
+            ])
+            .with_completions(complete_bind),
+        );
     }
 }
 
@@ -347,9 +351,10 @@ fn parse_keycode(name: &str) -> Option<KeyCode> {
 #[cfg(test)]
 mod tests {
     use super::{help_cmd, parse_key_binding, plugin};
+    use crate::model::CommandSpec;
     use crate::{
-        Args, BuiltinCommand, BuiltinCommands, CommandArgs, CommandSpec, ConsoleAliases,
-        ConsoleBinds, ConsoleBuffer, ConsoleCommandExecuted, ConsoleCommandQueue, ConsoleConfig,
+        Args, BuiltinCommand, BuiltinCommands, CommandArgs, ConsoleAliases, ConsoleBinds,
+        ConsoleBuffer, ConsoleCommandExecuted, ConsoleCommandQueue, ConsoleConfig,
         ConsoleKeyBinding, ConsoleKeyModifiers, ConsoleLevel, ConsoleRegistry, ConsoleRequest,
         ConsoleResult, ConsoleState,
     };

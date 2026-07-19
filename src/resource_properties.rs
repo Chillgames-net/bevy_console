@@ -4,10 +4,10 @@
 //! [`ConsoleResource`] derive generates the typed accessors; this module keeps
 //! their runtime registry and all console command integration in one place.
 
+use crate::model::CommandSpec;
 use crate::{
-    Args, ArgumentSpec, BuiltinCommand, CommandSpec, CompletionItem, CompletionRequest,
-    ConsoleAppExt, ConsoleCompletionRequest, ConsoleRegistry, ConsoleResult,
-    completion::static_completion_items,
+    Args, ArgumentSpec, BuiltinCommand, CompletionItem, CompletionRequest,
+    ConsoleCompletionRequest, ConsoleRegistry, ConsoleResult, completion::static_completion_items,
 };
 use bevy::prelude::*;
 use std::collections::BTreeMap;
@@ -216,10 +216,11 @@ impl ConsoleResources {
 pub(crate) fn plugin(app: &mut App) {
     let enabled = app.world().resource::<crate::BuiltinCommands>().clone();
     app.init_resource::<ConsoleResources>();
-    {
-        let mut registry = app.world_mut().resource_mut::<ConsoleRegistry>();
-        if enabled.contains(&BuiltinCommand::Res) {
-            registry.register_exclusive_spec(
+    if enabled.contains(&BuiltinCommand::Res) {
+        let completer = app.world_mut().register_system(complete_res);
+        app.world_mut()
+            .resource_mut::<ConsoleRegistry>()
+            .register_exclusive_spec_with_completer(
                 CommandSpec::new("res")
                     .help(
                         "res <get|set|add|sub|toggle> <property> [value] - inspect or modify a resource property",
@@ -231,11 +232,8 @@ pub(crate) fn plugin(app: &mut App) {
                         ArgumentSpec::new("value").help("Value or amount"),
                     ]),
                 res_property,
+                completer,
             );
-        }
-    }
-    if enabled.contains(&BuiltinCommand::Res) {
-        app.add_console_completer("res", complete_res);
     }
 }
 

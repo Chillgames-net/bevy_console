@@ -5,13 +5,15 @@
 Commands are plain Bevy systems that receive `CommandArgs` (`In<Args>`) and return a `String` or `ConsoleResult`. `String` is converted to an info-level `ConsoleResult` automatically:
 
 ```rust
-use chill_bevy_console::CommandArgs;
+use chill_bevy_console::{CommandArgs, ConsoleCommand};
 
 fn say_cmd(In(args): CommandArgs) -> String {
     args.join(" ")
 }
 
-app.add_console_command("say", "say <text> - echo text to the console", say_cmd);
+app.add_console_command(
+    ConsoleCommand::new("say", "say <text> - echo text to the console", say_cmd),
+);
 ```
 
 `Args` dereferences to `[String]` (giving you `join`, `len`, `iter`, …) and adds three helpers:
@@ -45,20 +47,18 @@ fn goto_level_cmd(In(args): CommandArgs, mut level: ResMut<LevelManager>) -> Str
 
 ## Rich commands and argument completion
 
-Keep `add_console_command` for the common case. When a command needs aliases,
-structured help or completion metadata, use
-`CommandSpec`; its handler is still a normal Bevy system:
+Use `ConsoleCommand` for every command; it scales from the simplest command to
+aliases, structured help, and dynamic completion:
 
 ```rust
-use chill_bevy_console::{ArgumentSpec, CommandSpec, ConsoleAppExt};
+use chill_bevy_console::{ArgumentSpec, ConsoleAppExt, ConsoleCommand};
 
-app.add_console_command_spec(
-    CommandSpec::new("map")
-        .help("map <name> - load a map")
-        .summary("Load a map by name")
-        .alias("changelevel")
-        .args([ArgumentSpec::new("name").help("Map asset name")]),
-    load_map,
+app.add_console_command(
+    ConsoleCommand::new("map", "map <name> - load a map", load_map)
+        .with_summary("Load a map by name")
+        .with_alias("changelevel")
+        .with_args([ArgumentSpec::new("name").help("Map asset name")])
+        .with_completions(complete_maps),
 );
 ```
 
@@ -81,7 +81,6 @@ fn complete_maps(
     }
 }
 
-app.add_console_completer("map", complete_maps);
 ```
 
 A registered completer owns completion for every argument of its command. In

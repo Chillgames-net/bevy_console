@@ -1,4 +1,4 @@
-use crate::{Args, CommandSpec, CompletionItem, ConsoleCompletionRequest, ConsoleResult};
+use crate::{Args, CompletionItem, ConsoleCompletionRequest, ConsoleResult, model::CommandSpec};
 use bevy::ecs::system::SystemId;
 use bevy::prelude::*;
 use std::collections::{BTreeMap, BTreeSet};
@@ -12,15 +12,15 @@ pub enum CommandExecutor {
 
 pub struct CommandDef {
     /// Structured metadata used by help and completion.
-    pub spec: CommandSpec,
-    pub executor: CommandExecutor,
-    pub completer: Option<SystemId<ConsoleCompletionRequest, Vec<CompletionItem>>>,
+    pub(crate) spec: CommandSpec,
+    pub(crate) executor: CommandExecutor,
+    pub(crate) completer: Option<SystemId<ConsoleCompletionRequest, Vec<CompletionItem>>>,
 }
 
 /// Registry of all commands available in the console.
 ///
-/// You can inject this as a resource and call `register_result_spec` directly,
-/// but the preferred way is `app.add_console_command(name, usage, my_system)`.
+/// The registry is available as a resource for command lookup. Register
+/// commands through [`crate::ConsoleAppExt`].
 #[derive(Resource, Default)]
 pub struct ConsoleRegistry {
     pub commands: BTreeMap<String, CommandDef>,
@@ -28,7 +28,7 @@ pub struct ConsoleRegistry {
 
 impl ConsoleRegistry {
     /// Registers a command that returns structured lines with severity levels.
-    pub fn register_result_spec(
+    pub(crate) fn register_result_spec(
         &mut self,
         spec: CommandSpec,
         system_id: SystemId<In<Args>, ConsoleResult>,
@@ -36,50 +36,48 @@ impl ConsoleRegistry {
         self.insert(spec, CommandExecutor::Structured(system_id));
     }
 
-    /// Registers a command implemented directly against the [`World`].
-    ///
-    /// This is used internally for commands that must dynamically select a
-    /// resource at runtime. Public commands should normally remain Bevy
-    /// systems and use [`Self::register_result_spec`].
+    pub(crate) fn register_result_spec_with_completer(
+        &mut self,
+        spec: CommandSpec,
+        system_id: SystemId<In<Args>, ConsoleResult>,
+        completer: SystemId<ConsoleCompletionRequest, Vec<CompletionItem>>,
+    ) {
+        self.insert_with_completer(
+            spec,
+            CommandExecutor::Structured(system_id),
+            Some(completer),
+        );
+    }
+
     #[cfg(feature = "resource-properties")]
-    pub(crate) fn register_exclusive_spec(
+    pub(crate) fn register_exclusive_spec_with_completer(
         &mut self,
         spec: CommandSpec,
         command: fn(&mut World, Args) -> ConsoleResult,
+        completer: SystemId<ConsoleCompletionRequest, Vec<CompletionItem>>,
     ) {
-        self.insert(spec, CommandExecutor::Exclusive(command));
+        self.insert_with_completer(spec, CommandExecutor::Exclusive(command), Some(completer));
     }
 
     fn insert(&mut self, spec: CommandSpec, executor: CommandExecutor) {
+        self.insert_with_completer(spec, executor, None);
+    }
+
+    fn insert_with_completer(
+        &mut self,
+        spec: CommandSpec,
+        executor: CommandExecutor,
+        completer: Option<SystemId<ConsoleCompletionRequest, Vec<CompletionItem>>>,
+    ) {
         let name = self.prepare_registration(&spec);
         self.commands.insert(
             name,
             CommandDef {
                 spec,
                 executor,
-                completer: None,
+                completer,
             },
         );
-    }
-
-    /// Associates a dynamic completion system with a command.
-    pub fn register_completer(
-        &mut self,
-        command: &str,
-        system_id: SystemId<ConsoleCompletionRequest, Vec<CompletionItem>>,
-    ) -> bool {
-        let Some(command) = self.resolve_name(command).map(str::to_owned) else {
-            return false;
-        };
-        let Some(def) = self.commands.get_mut(&command) else {
-            return false;
-        };
-        assert!(
-            def.completer.is_none(),
-            "command `{command}` already has a completer"
-        );
-        def.completer = Some(system_id);
-        true
     }
 
     /// Finds a command using its name or an alias, case-insensitively.
@@ -150,15 +148,11 @@ impl ConsoleRegistry {
 #[cfg(test)]
 mod tests {
     use super::ConsoleRegistry;
-    use crate::{Args, CommandSpec, CompletionItem, ConsoleCompletionRequest, ConsoleResult};
+    use crate::{Args, ConsoleResult, model::CommandSpec};
     use bevy::prelude::*;
 
     fn noop(In(_args): In<Args>) -> ConsoleResult {
         ConsoleResult::default()
-    }
-
-    fn complete(In(_request): ConsoleCompletionRequest) -> Vec<CompletionItem> {
-        Vec::new()
     }
 
     #[test]
@@ -197,18 +191,5 @@ mod tests {
         let mut registry = ConsoleRegistry::default();
         registry.register_result_spec(CommandSpec::new("bar").alias("foo"), first);
         registry.register_result_spec(CommandSpec::new("foo"), second);
-    }
-
-    #[test]
-    #[should_panic(expected = "already has a completer")]
-    fn command_cannot_register_multiple_completers() {
-        let mut world = World::new();
-        let command = world.register_system(noop);
-        let first = world.register_system(complete);
-        let second = world.register_system(complete);
-        let mut registry = ConsoleRegistry::default();
-        registry.register_result_spec(CommandSpec::new("map"), command);
-        assert!(registry.register_completer("map", first));
-        registry.register_completer("map", second);
     }
 }
