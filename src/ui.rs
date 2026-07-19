@@ -6,6 +6,9 @@ use bevy::input_focus::AutoFocus;
 use bevy::picking::pointer::PointerId;
 use bevy::picking::prelude::{Click, Drag, DragEnd, Pointer, PointerButton};
 use bevy::prelude::*;
+use bevy::text::{EditableText, EditableTextFilter, LineHeight, TextCursorStyle, TextLayoutInfo};
+use bevy::ui::{ComputedNode, ScrollPosition, widget::TextScroll};
+use std::collections::{HashSet, VecDeque};
 
 /// Updates the console view only while visible and after its state or output changes.
 pub(crate) fn console_open_and_changed(
@@ -41,9 +44,6 @@ pub(crate) fn sync_console_ui(
         }
     }
 }
-use bevy::text::{EditableText, EditableTextFilter, LineHeight, TextCursorStyle, TextLayoutInfo};
-use bevy::ui::{ComputedNode, ScrollPosition, widget::TextScroll};
-use std::collections::{HashSet, VecDeque};
 
 // ── Assets ────────────────────────────────────────────────────────────────────
 

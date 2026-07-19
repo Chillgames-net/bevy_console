@@ -54,8 +54,12 @@ pub(crate) fn scroll_console(
     scroll_pos.y = new_y;
 
     if pixels > 0.0 {
-        state.scroll_follow = false;
+        if state.scroll_follow {
+            state.scroll_follow = false;
+        }
     } else if new_y >= max_scroll - 1.0 {
-        state.scroll_follow = true;
+        if !state.scroll_follow {
+            state.scroll_follow = true;
+        }
     }
 }
