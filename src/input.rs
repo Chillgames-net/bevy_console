@@ -6,6 +6,7 @@ use crate::{ConsoleBinds, ConsoleCommandQueue, ConsoleRequest};
 use bevy::ecs::system::SystemParam;
 use bevy::input::ButtonState;
 use bevy::input::keyboard::{Key, KeyboardInput};
+use bevy::input_focus::{FocusCause, InputFocus};
 use bevy::prelude::*;
 use bevy::text::{EditableText, TextEdit};
 use bevy::ui::ScrollPosition;
@@ -40,6 +41,22 @@ pub(crate) fn handle_toggle_key(
 
     if keys.just_pressed(config.toggle_key) {
         state.open = !state.open;
+    }
+}
+
+/// Keeps keyboard focus on the console editor while the console is open.
+///
+/// `AutoFocus` handles the initial spawn, but focus can later move because Tab
+/// and other UI interactions are dispatched before the console handles them.
+pub(crate) fn focus_console_input(
+    input_q: Query<Entity, With<ConsoleInput>>,
+    mut input_focus: ResMut<InputFocus>,
+) {
+    let Ok(input) = input_q.single() else {
+        return;
+    };
+    if input_focus.get() != Some(input) {
+        input_focus.set(input, FocusCause::Navigated);
     }
 }
 

@@ -112,8 +112,8 @@ use execution::{
     collect_console_lines, execute_pending_commands, has_pending_command, queue_console_requests,
 };
 use input::{
-    capture_console_input, console_open, handle_toggle_key, queue_bound_commands,
-    sync_console_input,
+    capture_console_input, console_open, focus_console_input, handle_toggle_key,
+    queue_bound_commands, sync_console_input,
 };
 use logging::drain_captured_logs;
 use scroll::scroll_console;
@@ -312,6 +312,7 @@ impl Plugin for ChillConsole {
                 (
                     handle_toggle_key,
                     sync_console_ui,
+                    focus_console_input.run_if(console_open),
                     sync_console_input.run_if(console_open),
                     capture_console_input,
                     queue_bound_commands,
