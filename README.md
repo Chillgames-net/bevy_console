@@ -60,7 +60,7 @@ Import `ConsoleAppExt` to add these methods to Bevy's `App`. Each returns
 |--------|---------|
 | `add_console_command(name, usage, system)` | Register a command whose system receives `CommandArgs` and returns a `String` or `ConsoleResult`. |
 | `add_console_command_spec(spec, system)` | Register a `CommandSpec` with aliases, argument metadata, and structured help; its system returns a `String` or `ConsoleResult`. |
-| `add_console_completer(command, argument_index, completer)` | Attach a dynamic argument completer to a previously registered command. |
+| `add_console_completer(command, completer)` | Attach a dynamic completer to a previously registered command. |
 | `add_console_resource::<R>()` | Register `R`'s `ConsoleResource` properties for the built-in `res` command. Requires the `resource-properties` feature. |
 
 See [USAGE.md](USAGE.md) for adding commands, custom config, persisting history, blocking gameplay input, and built-in commands. Runnable examples live in [`examples/`](examples) — try `cargo run --example basic`.
@@ -82,7 +82,7 @@ app.add_console_command_spec(
         .args([ArgumentSpec::new("name")]),
     load_map,
 )
-.add_console_completer("map", 0, complete_map_names);
+.add_console_completer("map", complete_map_names);
 ```
 
 ## License

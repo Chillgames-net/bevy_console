@@ -1,7 +1,7 @@
 use crate::{
     ArgumentSpec, BuiltinCommand, CommandArgs, CommandSpec, CompletionItem, CompletionRequest,
-    ConsoleAliases, ConsoleAppExt, ConsoleBinds, ConsoleBuffer, ConsoleKeyBinding,
-    ConsoleKeyModifiers, ConsoleRegistry, ConsoleResult,
+    ConsoleAliases, ConsoleAppExt, ConsoleBinds, ConsoleBuffer, ConsoleCompletionRequest,
+    ConsoleKeyBinding, ConsoleKeyModifiers, ConsoleRegistry, ConsoleResult,
     completion::{runtime_command_completions, static_completion_items},
 };
 use bevy::prelude::*;
@@ -38,9 +38,7 @@ pub fn plugin(app: &mut App) {
                 ]),
             alias_cmd,
         )
-        .add_console_completer("alias", 0, complete_alias_operations)
-        .add_console_completer("alias", 1, complete_alias_names)
-        .add_console_completer("alias", 2, complete_commands_after_set);
+        .add_console_completer("alias", complete_alias);
     }
     if enabled.contains(&BuiltinCommand::Bind) {
         app.add_console_command_spec(
@@ -54,8 +52,7 @@ pub fn plugin(app: &mut App) {
                 ]),
             bind_cmd,
         )
-        .add_console_completer("bind", 0, complete_bind_operations)
-        .add_console_completer("bind", 2, complete_commands_after_set);
+        .add_console_completer("bind", complete_bind);
     }
 }
 
@@ -173,39 +170,38 @@ fn alias_cmd(
     }
 }
 
-fn complete_alias_operations(In(request): In<CompletionRequest>) -> Vec<CompletionItem> {
-    static_completion_items(
-        &request,
-        [
-            ("list", "Lists runtime aliases"),
-            ("get", "Shows an alias"),
-            ("set", "Creates or updates an alias"),
-            ("remove", "Removes an alias"),
-        ],
-    )
+fn complete_alias(
+    In(request): ConsoleCompletionRequest,
+    aliases: Res<ConsoleAliases>,
+    registry: Res<ConsoleRegistry>,
+) -> Vec<CompletionItem> {
+    match request.argument_index() {
+        0 => complete_alias_operations(),
+        1 => complete_alias_names(&request, &aliases),
+        2 => complete_commands_after_set(&request, &registry, &aliases),
+        _ => Vec::new(),
+    }
+}
+
+fn complete_alias_operations() -> Vec<CompletionItem> {
+    static_completion_items([
+        ("list", "Lists runtime aliases"),
+        ("get", "Shows an alias"),
+        ("set", "Creates or updates an alias"),
+        ("remove", "Removes an alias"),
+    ])
 }
 
 fn complete_alias_names(
-    In(request): In<CompletionRequest>,
-    aliases: Res<ConsoleAliases>,
+    request: &CompletionRequest,
+    aliases: &ConsoleAliases,
 ) -> Vec<CompletionItem> {
-    if !matches!(
-        request
-            .parsed
-            .tokens
-            .get(1)
-            .map(|token| token.value.as_str()),
-        Some("get" | "remove")
-    ) {
+    if !matches!(request.argument(0), Some("get" | "remove")) {
         return Vec::new();
     }
     aliases
         .iter()
-        .map(|(name, expansion)| {
-            let mut item = CompletionItem::new(name, request.parsed.replacement_range());
-            item.detail = expansion.into();
-            item
-        })
+        .map(|(name, expansion)| CompletionItem::new(name, expansion))
         .collect()
 }
 
@@ -274,34 +270,36 @@ fn bind_cmd(In(args): CommandArgs, mut binds: ResMut<ConsoleBinds>) -> ConsoleRe
     }
 }
 
-fn complete_bind_operations(In(request): In<CompletionRequest>) -> Vec<CompletionItem> {
-    static_completion_items(
-        &request,
-        [
-            ("list", "Lists runtime key bindings"),
-            ("get", "Shows a key binding"),
-            ("set", "Creates or updates a key binding"),
-            ("remove", "Removes a key binding"),
-        ],
-    )
-}
-
-fn complete_commands_after_set(
-    In(request): In<CompletionRequest>,
+fn complete_bind(
+    In(request): ConsoleCompletionRequest,
     registry: Res<ConsoleRegistry>,
     aliases: Res<ConsoleAliases>,
 ) -> Vec<CompletionItem> {
-    if !matches!(
-        request
-            .parsed
-            .tokens
-            .get(1)
-            .map(|token| token.value.as_str()),
-        Some("set")
-    ) {
+    match request.argument_index() {
+        0 => complete_bind_operations(),
+        2 => complete_commands_after_set(&request, &registry, &aliases),
+        _ => Vec::new(),
+    }
+}
+
+fn complete_bind_operations() -> Vec<CompletionItem> {
+    static_completion_items([
+        ("list", "Lists runtime key bindings"),
+        ("get", "Shows a key binding"),
+        ("set", "Creates or updates a key binding"),
+        ("remove", "Removes a key binding"),
+    ])
+}
+
+fn complete_commands_after_set(
+    request: &CompletionRequest,
+    registry: &ConsoleRegistry,
+    aliases: &ConsoleAliases,
+) -> Vec<CompletionItem> {
+    if !matches!(request.argument(0), Some("set")) {
         return Vec::new();
     }
-    runtime_command_completions(&registry, &aliases, request.parsed.replacement_range())
+    runtime_command_completions(registry, aliases)
 }
 
 fn parse_key_binding(input: &str) -> Option<ConsoleKeyBinding> {

@@ -63,23 +63,25 @@ app.add_console_command_spec(
 ```
 
 For dynamic values—entities, loaded assets, saved games, or map names—attach a
-normal Bevy system as a completer. It receives the parsed command and active
-argument, and can query game resources as usual:
+normal Bevy system as a completer. It runs for every argument of that command;
+use `request.argument_index()` to select behavior and `request.argument(i)` to
+inspect preceding values. It can query game resources as usual:
 
 ```rust
 use bevy::prelude::*;
-use chill_bevy_console::{CompletionItem, CompletionRequest, ConsoleAppExt};
+use chill_bevy_console::{ConsoleAppExt, ConsoleCompletionRequest};
 
 fn complete_maps(
-    In(request): In<CompletionRequest>,
+    In(request): ConsoleCompletionRequest,
     maps: Res<MapCatalog>,
-) -> Vec<CompletionItem> {
-    maps.names()
-        .map(|name| CompletionItem::new(name, request.parsed.replacement_range()))
-        .collect()
+) -> Vec<String> {
+    match request.argument_index() {
+        0 => maps.names().map(str::to_owned).collect(),
+        _ => Vec::new(),
+    }
 }
 
-app.add_console_completer("map", 0, complete_maps);
+app.add_console_completer("map", complete_maps);
 ```
 
 Quoted arguments and backslash escapes are parsed before execution, so commands

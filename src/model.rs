@@ -338,38 +338,110 @@ impl ConsoleRequest {
     }
 }
 
-/// Input supplied to a command completer. It contains the parser result, so a
-/// completer can inspect preceding arguments without reparsing the input.
+/// Input supplied to a command completer.
+///
+/// A request is only created while completing an argument of a registered
+/// command, so [`Self::command`] and [`Self::argument_index`] are always
+/// available. The parser result remains public for advanced completion logic.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CompletionRequest {
     pub parsed: ParsedInput,
+    command: String,
+    argument_index: usize,
 }
 
-/// A single completion item. `replace` is a source range in the original
-/// input; callers can safely use it to replace only the active argument.
+impl CompletionRequest {
+    pub(crate) fn new(parsed: ParsedInput, command: String, argument_index: usize) -> Self {
+        Self {
+            parsed,
+            command,
+            argument_index,
+        }
+    }
+
+    /// The command being completed, as written in the input.
+    pub fn command(&self) -> &str {
+        &self.command
+    }
+
+    /// The zero-based index of the argument being completed.
+    pub fn argument_index(&self) -> usize {
+        self.argument_index
+    }
+
+    /// Returns a decoded argument value by zero-based index.
+    pub fn argument(&self, index: usize) -> Option<&str> {
+        self.parsed
+            .tokens
+            .get(index.checked_add(1)?)
+            .map(|token| token.value.as_str())
+    }
+
+    /// The decoded text of the argument currently being completed.
+    pub fn active_fragment(&self) -> &str {
+        self.parsed.active_fragment()
+    }
+}
+
+/// A completion candidate returned by a command completer.
 ///
 /// The default `insert_text` is quoted and escaped automatically when needed.
-/// Assign a different `insert_text` when the completion intentionally inserts
-/// command syntax rather than one argument value.
+/// Use [`Self::insert_text`] when the completion intentionally inserts command
+/// syntax rather than one argument value.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CompletionItem {
-    pub label: String,
-    pub insert_text: String,
-    pub detail: String,
-    pub replace: Range<usize>,
-    pub append_space: bool,
+    pub(crate) label: String,
+    pub(crate) insert_text: String,
+    pub(crate) detail: String,
+    pub(crate) replace: Range<usize>,
+    pub(crate) append_space: bool,
 }
 
 impl CompletionItem {
-    pub fn new(label: impl Into<String>, replace: Range<usize>) -> Self {
+    /// Creates a candidate with its display label and detail text.
+    pub fn new(label: impl Into<String>, detail: impl Into<String>) -> Self {
         let label = label.into();
         Self {
             insert_text: label.clone(),
             label,
-            detail: String::new(),
-            replace,
+            detail: detail.into(),
+            replace: 0..0,
             append_space: true,
         }
+    }
+
+    /// Sets text inserted in place of the candidate label.
+    pub fn insert_text(mut self, text: impl Into<String>) -> Self {
+        self.insert_text = text.into();
+        self
+    }
+
+    /// Controls whether accepting this candidate appends a space.
+    pub fn append_space(mut self, append_space: bool) -> Self {
+        self.append_space = append_space;
+        self
+    }
+
+    #[cfg(test)]
+    pub(crate) fn with_replace(mut self, replace: Range<usize>) -> Self {
+        self.replace = replace;
+        self
+    }
+
+    pub(crate) fn set_replace(&mut self, replace: Range<usize>) {
+        self.replace = replace;
+    }
+}
+
+impl From<String> for CompletionItem {
+    fn from(label: String) -> Self {
+        Self::new(label, "")
+    }
+}
+
+impl From<&str> for CompletionItem {
+    fn from(label: &str) -> Self {
+        Self::new(label, "")
     }
 }
 

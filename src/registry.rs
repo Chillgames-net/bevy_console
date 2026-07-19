@@ -1,4 +1,4 @@
-use crate::{Args, CommandSpec, CompletionItem, CompletionRequest, ConsoleResult};
+use crate::{Args, CommandSpec, CompletionItem, ConsoleCompletionRequest, ConsoleResult};
 use bevy::ecs::system::SystemId;
 use bevy::prelude::*;
 use std::collections::{BTreeMap, BTreeSet};
@@ -14,7 +14,7 @@ pub struct CommandDef {
     /// Structured metadata used by help and completion.
     pub spec: CommandSpec,
     pub executor: CommandExecutor,
-    pub completers: BTreeMap<usize, SystemId<In<CompletionRequest>, Vec<CompletionItem>>>,
+    pub completer: Option<SystemId<ConsoleCompletionRequest, Vec<CompletionItem>>>,
 }
 
 /// Registry of all commands available in the console.
@@ -57,17 +57,16 @@ impl ConsoleRegistry {
             CommandDef {
                 spec,
                 executor,
-                completers: BTreeMap::new(),
+                completer: None,
             },
         );
     }
 
-    /// Associates a dynamic completion system with a command argument.
+    /// Associates a dynamic completion system with a command.
     pub fn register_completer(
         &mut self,
         command: &str,
-        argument_index: usize,
-        system_id: SystemId<In<CompletionRequest>, Vec<CompletionItem>>,
+        system_id: SystemId<ConsoleCompletionRequest, Vec<CompletionItem>>,
     ) -> bool {
         let Some(command) = self.resolve_name(command).map(str::to_owned) else {
             return false;
@@ -75,7 +74,7 @@ impl ConsoleRegistry {
         let Some(def) = self.commands.get_mut(&command) else {
             return false;
         };
-        def.completers.insert(argument_index, system_id);
+        def.completer = Some(system_id);
         true
     }
 

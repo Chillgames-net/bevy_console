@@ -10,8 +10,8 @@
 
 use bevy::prelude::*;
 use chill_bevy_console::{
-    ArgumentSpec, BuiltinCommand, ChillConsole, CommandArgs, CommandSpec, CompletionItem,
-    CompletionRequest, ConsoleAppExt, ConsoleResource,
+    ArgumentSpec, BuiltinCommand, ChillConsole, CommandArgs, CommandSpec, ConsoleAppExt,
+    ConsoleCompletionRequest, ConsoleResource,
 };
 
 #[derive(Resource)]
@@ -41,7 +41,7 @@ fn main() {
                 .args([ArgumentSpec::new("name").help("Map asset name")]),
             load_map,
         )
-        .add_console_completer("map", 0, complete_maps)
+        .add_console_completer("map", complete_maps)
         .add_systems(Startup, setup)
         .run();
 }
@@ -67,9 +67,9 @@ fn load_map(In(args): CommandArgs, maps: Res<MapCatalog>) -> String {
     }
 }
 
-fn complete_maps(In(request): In<CompletionRequest>, maps: Res<MapCatalog>) -> Vec<CompletionItem> {
-    maps.0
-        .iter()
-        .map(|name| CompletionItem::new(*name, request.parsed.replacement_range()))
-        .collect()
+fn complete_maps(In(request): ConsoleCompletionRequest, maps: Res<MapCatalog>) -> Vec<String> {
+    match request.argument_index() {
+        0 => maps.0.iter().map(|name| (*name).to_string()).collect(),
+        _ => Vec::new(),
+    }
 }

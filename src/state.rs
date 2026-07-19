@@ -271,7 +271,7 @@ mod tests {
     fn completion_in_the_middle_preserves_following_input_and_cursor_position() {
         let mut state = ConsoleState::default();
         state.replace_input("map fo now".into());
-        state.completion_items = vec![crate::CompletionItem::new("forest", 4..6)];
+        state.completion_items = vec![crate::CompletionItem::from("forest").with_replace(4..6)];
 
         assert_eq!(state.apply_selected_completion(), Some(10));
         assert_eq!(state.input, "map forest now");
@@ -281,7 +281,7 @@ mod tests {
     fn completion_places_the_cursor_after_a_closing_quote() {
         let mut state = ConsoleState::default();
         state.replace_input("map \"fo\" now".into());
-        state.completion_items = vec![crate::CompletionItem::new("forest", 5..7)];
+        state.completion_items = vec![crate::CompletionItem::from("forest").with_replace(5..7)];
 
         assert_eq!(state.apply_selected_completion(), Some(12));
         assert_eq!(state.input, "map \"forest\" now");
@@ -291,7 +291,8 @@ mod tests {
     fn completion_quotes_argument_values_containing_spaces() {
         let mut state = ConsoleState::default();
         state.replace_input("map fo".into());
-        state.completion_items = vec![crate::CompletionItem::new("forest path", 4..6)];
+        state.completion_items =
+            vec![crate::CompletionItem::from("forest path").with_replace(4..6)];
 
         assert_eq!(state.apply_selected_completion(), Some(18));
         assert_eq!(state.input, "map \"forest path\" ");
@@ -301,7 +302,8 @@ mod tests {
     fn completion_closes_an_unterminated_quote() {
         let mut state = ConsoleState::default();
         state.replace_input("map \"fo".into());
-        state.completion_items = vec![crate::CompletionItem::new("forest path", 5..7)];
+        state.completion_items =
+            vec![crate::CompletionItem::from("forest path").with_replace(5..7)];
 
         assert!(state.apply_selected_completion().is_some());
         assert_eq!(state.input, "map \"forest path\" ");
@@ -312,7 +314,8 @@ mod tests {
         let mut state = ConsoleState::default();
         state.replace_input("map fo".into());
         let invalid_start = state.input.len();
-        state.completion_items = vec![crate::CompletionItem::new("forest", invalid_start..4)];
+        state.completion_items =
+            vec![crate::CompletionItem::from("forest").with_replace(invalid_start..4)];
 
         assert_eq!(state.apply_selected_completion(), None);
         assert_eq!(state.input, "map fo");
@@ -322,7 +325,9 @@ mod tests {
     fn completion_navigation_crosses_pages_and_wraps() {
         let mut state = ConsoleState {
             completion_items: (0..7)
-                .map(|index| crate::CompletionItem::new(format!("item-{index}"), 0..0))
+                .map(|index| {
+                    crate::CompletionItem::from(format!("item-{index}")).with_replace(0..0)
+                })
                 .collect(),
             ..ConsoleState::default()
         };
@@ -347,7 +352,7 @@ mod tests {
     #[test]
     fn completion_page_range_is_empty_when_page_size_is_zero() {
         let state = ConsoleState {
-            completion_items: vec![crate::CompletionItem::new("item", 0..0)],
+            completion_items: vec![crate::CompletionItem::from("item").with_replace(0..0)],
             ..ConsoleState::default()
         };
 
@@ -360,7 +365,7 @@ mod tests {
         state.replace_input("ma".into());
         state.completion_items = ["map", "marker", "material"]
             .into_iter()
-            .map(|label| crate::CompletionItem::new(label, 0..2))
+            .map(|label| crate::CompletionItem::from(label).with_replace(0..2))
             .collect();
         state.match_index = 2;
 

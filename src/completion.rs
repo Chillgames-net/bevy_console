@@ -56,25 +56,21 @@ fn command_completions(
     parsed: &ParsedInput,
 ) -> Vec<CompletionItem> {
     rank_completion_items(
-        runtime_command_completions(registry, aliases, parsed.replacement_range()),
+        runtime_command_completions(registry, aliases),
         parsed.active_fragment(),
+        parsed.replacement_range(),
     )
 }
 
 pub(crate) fn runtime_command_completions(
     registry: &ConsoleRegistry,
     aliases: &ConsoleAliases,
-    replace: std::ops::Range<usize>,
 ) -> Vec<CompletionItem> {
     let mut items = registry
         .commands
         .values()
         .filter(|def| !def.spec.hidden)
-        .map(|def| {
-            let mut item = CompletionItem::new(def.spec.name.clone(), replace.clone());
-            item.detail = def.spec.summary.to_string();
-            item
-        })
+        .map(|def| CompletionItem::new(def.spec.name.clone(), def.spec.summary))
         .collect::<Vec<_>>();
     items.extend(
         registry
@@ -83,16 +79,15 @@ pub(crate) fn runtime_command_completions(
             .filter(|def| !def.spec.hidden)
             .flat_map(|def| {
                 def.spec.aliases.iter().map(|alias| {
-                    let mut item = CompletionItem::new(*alias, replace.clone());
-                    item.detail = format!("alias for {} - {}", def.spec.name, def.spec.summary);
-                    item
+                    CompletionItem::new(
+                        *alias,
+                        format!("alias for {} - {}", def.spec.name, def.spec.summary),
+                    )
                 })
             }),
     );
     items.extend(aliases.iter().map(|(name, expansion)| {
-        let mut item = CompletionItem::new(name, replace.clone());
-        item.detail = format!("runtime alias - {expansion}");
-        item
+        CompletionItem::new(name, format!("runtime alias - {expansion}"))
     }));
     items
 }
@@ -101,16 +96,11 @@ pub(crate) fn runtime_command_completions(
 ///
 /// Built-in command completers use this for their fixed operation lists.
 pub(crate) fn static_completion_items(
-    request: &CompletionRequest,
     items: impl IntoIterator<Item = (&'static str, &'static str)>,
 ) -> Vec<CompletionItem> {
     items
         .into_iter()
-        .map(|(label, detail)| {
-            let mut item = CompletionItem::new(label, request.parsed.replacement_range());
-            item.detail = detail.into();
-            item
-        })
+        .map(|(label, detail)| CompletionItem::new(label, detail))
         .collect()
 }
 
@@ -127,18 +117,15 @@ fn argument_completions(
         let Some(def) = registry.get(command) else {
             return Vec::new();
         };
-        (
-            def.spec.args.get(argument_index).cloned(),
-            def.completers.get(&argument_index).copied(),
-        )
+        (def.spec.args.get(argument_index).cloned(), def.completer)
     };
 
     if let Some(completer) = completer {
-        let request = CompletionRequest {
-            parsed: parsed.clone(),
-        };
+        let request = CompletionRequest::new(parsed.clone(), command.to_owned(), argument_index);
         return match world.run_system_with(completer, request) {
-            Ok(items) => rank_completion_items(items, parsed.active_fragment()),
+            Ok(items) => {
+                rank_completion_items(items, parsed.active_fragment(), parsed.replacement_range())
+            }
             Err(error) => {
                 warn!("chill_bevy_console: command completer failed: {error}");
                 Vec::new()
@@ -166,17 +153,21 @@ fn argument_completions(
     rank_completion_items(
         choices
             .into_iter()
-            .map(|choice| {
-                let mut item = CompletionItem::new(choice, parsed.replacement_range());
-                item.detail = detail.clone();
-                item
-            })
+            .map(|choice| CompletionItem::new(choice, detail.clone()))
             .collect(),
         parsed.active_fragment(),
+        parsed.replacement_range(),
     )
 }
 
-fn rank_completion_items(items: Vec<CompletionItem>, fragment: &str) -> Vec<CompletionItem> {
+fn rank_completion_items(
+    mut items: Vec<CompletionItem>,
+    fragment: &str,
+    replace: std::ops::Range<usize>,
+) -> Vec<CompletionItem> {
+    for item in &mut items {
+        item.set_replace(replace.clone());
+    }
     let mut ranked = items
         .into_iter()
         .filter_map(|item| match_rank(&item.label, fragment).map(|rank| (rank, item)))
@@ -210,8 +201,8 @@ mod tests {
     use super::{has_dirty_completion, match_rank, refresh_completions};
     use crate::ui::ConsoleInput;
     use crate::{
-        ArgumentSpec, BuiltinCommand, CommandArgs, CommandSpec, CompletionItem, CompletionRequest,
-        ConsoleAliases, ConsoleAppExt, ConsoleConfig, ConsoleRegistry, ConsoleState,
+        ArgumentSpec, BuiltinCommand, CommandArgs, CommandSpec, CompletionItem, ConsoleAliases,
+        ConsoleAppExt, ConsoleCompletionRequest, ConsoleConfig, ConsoleRegistry, ConsoleState,
     };
     use bevy::prelude::*;
     use bevy::text::EditableText;
@@ -228,15 +219,27 @@ mod tests {
     #[derive(Resource)]
     struct Levels(Vec<&'static str>);
 
-    fn level_completer(
-        In(request): In<CompletionRequest>,
-        levels: Res<Levels>,
-    ) -> Vec<CompletionItem> {
-        levels
-            .0
-            .iter()
-            .map(|level| CompletionItem::new(*level, request.parsed.replacement_range()))
-            .collect()
+    fn level_completer(In(request): ConsoleCompletionRequest, levels: Res<Levels>) -> Vec<String> {
+        match request.argument_index() {
+            0 => levels.0.iter().map(|level| (*level).to_string()).collect(),
+            _ => Vec::new(),
+        }
+    }
+
+    fn indexed_completer(In(request): ConsoleCompletionRequest) -> Vec<CompletionItem> {
+        let previous = request.argument(0).unwrap_or("-");
+        vec![CompletionItem::new(
+            format!(
+                "{}:{}:{previous}",
+                request.command(),
+                request.argument_index()
+            ),
+            "",
+        )]
+    }
+
+    fn empty_completer(In(_request): ConsoleCompletionRequest) -> Vec<CompletionItem> {
+        Vec::new()
     }
 
     #[test]
@@ -267,7 +270,7 @@ mod tests {
                 ]),
             noop,
         )
-        .add_console_completer("map", 0, level_completer);
+        .add_console_completer("map", level_completer);
 
         {
             let mut state = app.world_mut().resource_mut::<ConsoleState>();
@@ -295,6 +298,7 @@ mod tests {
                 .collect::<Vec<_>>(),
             ["forest", "fortress"]
         );
+        assert_eq!(state.completion_items[0].replace, 4..6);
         assert!(app.world().contains_resource::<ConsoleRegistry>());
 
         {
@@ -322,7 +326,7 @@ mod tests {
                     .args([ArgumentSpec::new("name").choices(["static_map"])]),
                 noop,
             )
-            .add_console_completer("map", 0, level_completer);
+            .add_console_completer("map", level_completer);
 
         {
             let mut state = app.world_mut().resource_mut::<ConsoleState>();
@@ -339,6 +343,71 @@ mod tests {
                 .map(|item| item.label.as_str())
                 .collect::<Vec<_>>(),
             ["forest", "fortress"]
+        );
+    }
+
+    #[test]
+    fn command_completer_receives_the_active_index_and_preceding_arguments() {
+        let mut app = App::new();
+        app.insert_resource(ConsoleState::default())
+            .insert_resource(ConsoleConfig::default())
+            .init_resource::<ConsoleAliases>()
+            .add_console_command_spec(
+                CommandSpec::new("route")
+                    .help("route <from> <via> <to>")
+                    .args([
+                        ArgumentSpec::new("from"),
+                        ArgumentSpec::new("via"),
+                        ArgumentSpec::new("to"),
+                    ]),
+                noop,
+            )
+            .add_console_completer("route", indexed_completer);
+
+        for (input, expected) in [
+            ("route ", "route:0:-"),
+            ("route forest ", "route:1:forest"),
+            ("route forest river ", "route:2:forest"),
+        ] {
+            {
+                let mut state = app.world_mut().resource_mut::<ConsoleState>();
+                state.input = input.into();
+                state.mark_input_changed();
+            }
+            refresh_completions(app.world_mut());
+            assert_eq!(
+                app.world().resource::<ConsoleState>().completion_items[0].label,
+                expected
+            );
+        }
+    }
+
+    #[test]
+    fn empty_command_completer_suppresses_static_choices() {
+        let mut app = App::new();
+        app.insert_resource(ConsoleState::default())
+            .insert_resource(ConsoleConfig::default())
+            .init_resource::<ConsoleAliases>()
+            .add_console_command_spec(
+                CommandSpec::new("quality")
+                    .help("quality <level>")
+                    .args([ArgumentSpec::new("level").choices(["low", "high"])]),
+                noop,
+            )
+            .add_console_completer("quality", empty_completer);
+
+        {
+            let mut state = app.world_mut().resource_mut::<ConsoleState>();
+            state.input = "quality ".into();
+            state.mark_input_changed();
+        }
+        refresh_completions(app.world_mut());
+
+        assert!(
+            app.world()
+                .resource::<ConsoleState>()
+                .completion_items
+                .is_empty()
         );
     }
 
@@ -364,7 +433,7 @@ mod tests {
         {
             let mut state = app.world_mut().resource_mut::<ConsoleState>();
             state.input = "teleport pla".into();
-            state.completion_items = vec![CompletionItem::new("player", 9..12)];
+            state.completion_items = vec![CompletionItem::from("player").with_replace(9..12)];
             assert_eq!(state.apply_selected_completion(), Some(16));
         }
 

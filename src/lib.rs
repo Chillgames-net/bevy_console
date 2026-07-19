@@ -132,6 +132,20 @@ use ui::{ConsoleAssets, console_open_and_changed, sync_console_ui, update_consol
 /// ```
 pub type CommandArgs = In<Args>;
 
+/// The input type for console completion systems.
+///
+/// ```no_run
+/// # use chill_bevy_console::ConsoleCompletionRequest;
+/// # use bevy::prelude::*;
+/// fn complete_map(In(request): ConsoleCompletionRequest) -> Vec<String> {
+///     match request.argument_index() {
+///         0 => vec!["forest".into()],
+///         _ => Vec::new(),
+///     }
+/// }
+/// ```
+pub type ConsoleCompletionRequest = In<CompletionRequest>;
+
 // ── App extension ──────────────────────────────────────────────────────────────
 
 pub trait ConsoleAppExt {
@@ -171,14 +185,16 @@ pub trait ConsoleAppExt {
     where
         O: Into<ConsoleResult> + 'static;
 
-    /// Add a dynamic completer for one argument of a registered command. The
-    /// completer is a normal Bevy system and may query resources or entities.
-    fn add_console_completer<M>(
+    /// Add a dynamic completer for a registered command. The completer runs
+    /// for each argument of that command and may query resources or entities.
+    fn add_console_completer<M, O>(
         &mut self,
         command: &str,
-        argument_index: usize,
-        completer: impl IntoSystem<In<CompletionRequest>, Vec<CompletionItem>, M> + 'static,
-    ) -> &mut Self;
+        completer: impl IntoSystem<ConsoleCompletionRequest, O, M> + 'static,
+    ) -> &mut Self
+    where
+        O: IntoIterator + 'static,
+        O::Item: Into<CompletionItem>;
 
     /// Register the opt-in console properties generated for a Bevy resource.
     #[cfg(feature = "resource-properties")]
@@ -216,18 +232,23 @@ impl ConsoleAppExt for App {
         self
     }
 
-    fn add_console_completer<M>(
+    fn add_console_completer<M, O>(
         &mut self,
         command: &str,
-        argument_index: usize,
-        completer: impl IntoSystem<In<CompletionRequest>, Vec<CompletionItem>, M> + 'static,
-    ) -> &mut Self {
+        completer: impl IntoSystem<ConsoleCompletionRequest, O, M> + 'static,
+    ) -> &mut Self
+    where
+        O: IntoIterator + 'static,
+        O::Item: Into<CompletionItem>,
+    {
         self.init_resource::<ConsoleRegistry>();
-        let system_id = self.world_mut().register_system(completer);
+        let system_id = self
+            .world_mut()
+            .register_system(completer.map(into_completion_items::<O>));
         let registered = self
             .world_mut()
             .resource_mut::<ConsoleRegistry>()
-            .register_completer(command, argument_index, system_id);
+            .register_completer(command, system_id);
         assert!(
             registered,
             "cannot attach a completer to unknown command `{command}`"
@@ -244,6 +265,14 @@ impl ConsoleAppExt for App {
 
 fn into_console_result<O: Into<ConsoleResult>>(output: O) -> ConsoleResult {
     output.into()
+}
+
+fn into_completion_items<O>(items: O) -> Vec<CompletionItem>
+where
+    O: IntoIterator,
+    O::Item: Into<CompletionItem>,
+{
+    items.into_iter().map(Into::into).collect()
 }
 
 // ── Run condition ──────────────────────────────────────────────────────────────

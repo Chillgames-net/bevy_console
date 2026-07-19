@@ -6,7 +6,8 @@
 
 use crate::{
     Args, ArgumentSpec, BuiltinCommand, CommandSpec, CompletionItem, CompletionRequest,
-    ConsoleAppExt, ConsoleRegistry, ConsoleResult, completion::static_completion_items,
+    ConsoleAppExt, ConsoleCompletionRequest, ConsoleRegistry, ConsoleResult,
+    completion::static_completion_items,
 };
 use bevy::prelude::*;
 use std::collections::BTreeMap;
@@ -234,9 +235,7 @@ pub(crate) fn plugin(app: &mut App) {
         }
     }
     if enabled.contains(&BuiltinCommand::Res) {
-        app.add_console_completer("res", 0, complete_res_operations)
-            .add_console_completer("res", 1, complete_res_property_names)
-            .add_console_completer("res", 2, complete_res_property_values);
+        app.add_console_completer("res", complete_res);
     }
 }
 
@@ -351,55 +350,48 @@ fn toggle_property(world: &mut World, name: &str) -> ConsoleResult {
     }
 }
 
-fn complete_res_property_names(
-    In(request): In<CompletionRequest>,
+fn complete_res(
+    In(request): ConsoleCompletionRequest,
     properties: Res<ConsoleResources>,
 ) -> Vec<CompletionItem> {
-    let operation = request
-        .parsed
-        .tokens
-        .get(1)
-        .map(|token| token.value.as_str());
-    property_items(&request, &properties, |property| match operation {
+    match request.argument_index() {
+        0 => complete_res_operations(),
+        1 => complete_res_property_names(&request, &properties),
+        2 => complete_res_property_values(&request, &properties),
+        _ => Vec::new(),
+    }
+}
+
+fn complete_res_property_names(
+    request: &CompletionRequest,
+    properties: &ConsoleResources,
+) -> Vec<CompletionItem> {
+    let operation = request.argument(0);
+    property_items(properties, |property| match operation {
         Some("toggle") => property.is_boolean,
         Some("add" | "sub") => property.is_numeric,
         _ => true,
     })
 }
 
-fn complete_res_operations(In(request): In<CompletionRequest>) -> Vec<CompletionItem> {
-    static_completion_items(
-        &request,
-        [
-            ("add", "Adds to a numeric resource"),
-            ("get", "Shows a resource value"),
-            ("set", "Sets a resource value"),
-            ("sub", "Subtracts from a numeric resource"),
-            ("toggle", "Toggles a boolean resource"),
-        ],
-    )
+fn complete_res_operations() -> Vec<CompletionItem> {
+    static_completion_items([
+        ("add", "Adds to a numeric resource"),
+        ("get", "Shows a resource value"),
+        ("set", "Sets a resource value"),
+        ("sub", "Subtracts from a numeric resource"),
+        ("toggle", "Toggles a boolean resource"),
+    ])
 }
 
 fn complete_res_property_values(
-    In(request): In<CompletionRequest>,
-    properties: Res<ConsoleResources>,
+    request: &CompletionRequest,
+    properties: &ConsoleResources,
 ) -> Vec<CompletionItem> {
-    if !matches!(
-        request
-            .parsed
-            .tokens
-            .get(1)
-            .map(|token| token.value.as_str()),
-        Some("set")
-    ) {
+    if !matches!(request.argument(0), Some("set")) {
         return Vec::new();
     }
-    let Some(name) = request
-        .parsed
-        .tokens
-        .get(2)
-        .map(|token| token.value.as_str())
-    else {
+    let Some(name) = request.argument(1) else {
         return Vec::new();
     };
     let Some(property) = properties.get(name) else {
@@ -410,12 +402,11 @@ fn complete_res_property_values(
     }
     ["true", "false"]
         .into_iter()
-        .map(|value| CompletionItem::new(value, request.parsed.replacement_range()))
+        .map(CompletionItem::from)
         .collect()
 }
 
 fn property_items(
-    request: &CompletionRequest,
     properties: &ConsoleResources,
     predicate: impl Fn(ConsoleProperty) -> bool,
 ) -> Vec<CompletionItem> {
@@ -423,13 +414,14 @@ fn property_items(
         .iter()
         .filter(|(_, property)| predicate(*property))
         .map(|(name, property)| {
-            let mut item = CompletionItem::new(name, request.parsed.replacement_range());
-            item.detail = if property.help.is_empty() {
-                "resource property".into()
-            } else {
-                property.help.into()
-            };
-            item
+            CompletionItem::new(
+                name,
+                if property.help.is_empty() {
+                    "resource property"
+                } else {
+                    property.help
+                },
+            )
         })
         .collect()
 }

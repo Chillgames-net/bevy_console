@@ -382,8 +382,8 @@ mod tests {
             .insert_resource(ConsoleState {
                 open: true,
                 completion_items: vec![
-                    crate::CompletionItem::new("alpha", 0..0),
-                    crate::CompletionItem::new("beta", 0..0),
+                    crate::CompletionItem::from("alpha").with_replace(0..0),
+                    crate::CompletionItem::from("beta").with_replace(0..0),
                 ],
                 cmd_history: vec!["echo older".into(), "echo newer".into()],
                 ..default()
@@ -470,8 +470,8 @@ mod tests {
                 open: true,
                 input: "ec".into(),
                 completion_items: vec![
-                    crate::CompletionItem::new("echo", 0..2),
-                    crate::CompletionItem::new("exit", 0..2),
+                    crate::CompletionItem::from("echo").with_replace(0..2),
+                    crate::CompletionItem::from("exit").with_replace(0..2),
                 ],
                 match_index: 1,
                 ..default()
@@ -520,7 +520,7 @@ mod tests {
             .insert_resource(ConsoleState {
                 open: true,
                 input: "ec".into(),
-                completion_items: vec![crate::CompletionItem::new("echo", 0..2)],
+                completion_items: vec![crate::CompletionItem::from("echo").with_replace(0..2)],
                 cmd_history: vec!["ec".into()],
                 cmd_history_index: Some(0),
                 cmd_history_draft: "draft".into(),
