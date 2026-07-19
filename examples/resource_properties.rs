@@ -54,7 +54,7 @@ fn apply_render_settings(
     mut console: MessageWriter<ConsoleLineMessage>,
 ) {
     if settings.is_changed() {
-        info!("${settings:?}");
-        console.write(ConsoleLineMessage::info(format!("${settings:?}")));
+        info!("{settings:?}");
+        console.write(ConsoleLineMessage::info(format!("{settings:?}")));
     }
 }

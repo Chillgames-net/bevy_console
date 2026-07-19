@@ -56,55 +56,26 @@ impl ArgumentSpec {
 /// Structured metadata retained by the registry after a command is registered.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct CommandSpec {
-    pub name: String,
-    pub usage: &'static str,
-    pub summary: &'static str,
-    pub long_help: Option<&'static str>,
-    pub aliases: Vec<&'static str>,
-    pub args: Vec<ArgumentSpec>,
-    pub hidden: bool,
+    pub(crate) name: String,
+    pub(crate) usage: &'static str,
+    pub(crate) summary: &'static str,
+    pub(crate) long_help: Option<&'static str>,
+    pub(crate) aliases: Vec<&'static str>,
+    pub(crate) args: Vec<ArgumentSpec>,
+    pub(crate) hidden: bool,
 }
 
 impl CommandSpec {
-    /// Creates a command spec. Add display help with [`Self::help`] as needed.
-    pub fn new(name: impl Into<String>) -> Self {
+    pub(crate) fn new(name: impl Into<String>, usage: &'static str) -> Self {
         Self {
             name: name.into(),
-            usage: "",
-            summary: "",
+            usage,
+            summary: usage,
             long_help: None,
             aliases: Vec::new(),
             args: Vec::new(),
             hidden: false,
         }
-    }
-
-    /// Sets the one-line usage and help text shown by the built-in `help` command.
-    pub fn help(mut self, help: &'static str) -> Self {
-        self.usage = help;
-        self.summary = help;
-        self
-    }
-
-    pub fn summary(mut self, summary: &'static str) -> Self {
-        self.summary = summary;
-        self
-    }
-    pub fn long_help(mut self, help: &'static str) -> Self {
-        self.long_help = Some(help);
-        self
-    }
-    pub fn alias(mut self, alias: &'static str) -> Self {
-        self.aliases.push(alias);
-        self
-    }
-    pub fn args(mut self, args: impl IntoIterator<Item = ArgumentSpec>) -> Self {
-        self.args = args.into_iter().collect();
-        self
-    }
-    pub fn hidden(mut self) -> Self {
-        self.hidden = true;
-        self
     }
 }
 
@@ -126,7 +97,7 @@ impl ConsoleCommand {
         O: Into<crate::ConsoleResult> + 'static,
     {
         Self {
-            spec: CommandSpec::new(name).help(help),
+            spec: CommandSpec::new(name, help),
             system: Box::new(IntoSystem::into_system(
                 system.map(into_console_result::<O>),
             )),
@@ -149,31 +120,31 @@ impl ConsoleCommand {
 
     /// Sets the short description shown alongside command completion.
     pub fn with_summary(mut self, summary: &'static str) -> Self {
-        self.spec = self.spec.summary(summary);
+        self.spec.summary = summary;
         self
     }
 
     /// Sets extended text displayed by the built-in help command.
     pub fn with_long_help(mut self, help: &'static str) -> Self {
-        self.spec = self.spec.long_help(help);
+        self.spec.long_help = Some(help);
         self
     }
 
     /// Adds an alternate name for this command.
     pub fn with_alias(mut self, alias: &'static str) -> Self {
-        self.spec = self.spec.alias(alias);
+        self.spec.aliases.push(alias);
         self
     }
 
     /// Sets structured metadata for the command arguments.
     pub fn with_args(mut self, args: impl IntoIterator<Item = ArgumentSpec>) -> Self {
-        self.spec = self.spec.args(args);
+        self.spec.args = args.into_iter().collect();
         self
     }
 
     /// Hides this command from command completion.
     pub fn hidden(mut self) -> Self {
-        self.spec = self.spec.hidden();
+        self.spec.hidden = true;
         self
     }
 }
@@ -209,16 +180,16 @@ pub struct ConsoleRequest {
 /// messages. Keeping this separate from UI state allows commands to execute
 /// without pretending to type into the console.
 #[derive(Debug, Default, Resource)]
-pub struct ConsoleCommandQueue {
+pub(crate) struct ConsoleCommandQueue {
     requests: VecDeque<QueuedConsoleRequest>,
 }
 
 #[derive(Debug)]
 pub(crate) struct QueuedConsoleRequest {
-    pub request: ConsoleRequest,
-    pub alias_depth: u8,
+    pub(crate) request: ConsoleRequest,
+    pub(crate) alias_depth: u8,
     /// The recalled history entry whose echo should be linked after alias expansion.
-    pub history_index: Option<usize>,
+    pub(crate) history_index: Option<usize>,
 }
 
 /// User-defined command expansions. Unlike aliases declared during command
@@ -371,17 +342,18 @@ impl ConsoleAliases {
 }
 
 impl ConsoleCommandQueue {
-    pub fn push(&mut self, request: ConsoleRequest) {
+    pub(crate) fn push(&mut self, request: ConsoleRequest) {
         self.requests.push_back(QueuedConsoleRequest {
             request,
             alias_depth: 0,
             history_index: None,
         });
     }
-    pub fn is_empty(&self) -> bool {
+    pub(crate) fn is_empty(&self) -> bool {
         self.requests.is_empty()
     }
-    pub fn len(&self) -> usize {
+    #[cfg(test)]
+    pub(crate) fn len(&self) -> usize {
         self.requests.len()
     }
 

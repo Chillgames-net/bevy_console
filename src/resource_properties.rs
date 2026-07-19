@@ -183,7 +183,7 @@ impl ConsolePropertyValue for String {
 
 /// Runtime registry for fields exposed by registered [`ConsoleResource`] types.
 #[derive(Resource, Default)]
-pub struct ConsoleResources {
+pub(crate) struct ConsoleResources {
     properties: BTreeMap<String, ConsoleProperty>,
 }
 
@@ -221,16 +221,18 @@ pub(crate) fn plugin(app: &mut App) {
         app.world_mut()
             .resource_mut::<ConsoleRegistry>()
             .register_exclusive_spec_with_completer(
-                CommandSpec::new("res")
-                    .help(
-                        "res <get|set|add|sub|toggle> <property> [value] - inspect or modify a resource property",
-                    )
-                    .summary("Inspect or modify a resource property")
-                    .args([
+                CommandSpec {
+                    summary: "Inspect or modify a resource property",
+                    args: vec![
                         ArgumentSpec::new("operation"),
                         ArgumentSpec::new("property").help("Property name"),
                         ArgumentSpec::new("value").help("Value or amount"),
-                    ]),
+                    ],
+                    ..CommandSpec::new(
+                        "res",
+                        "res <get|set|add|sub|toggle> <property> [value] - inspect or modify a resource property",
+                    )
+                },
                 res_property,
                 completer,
             );

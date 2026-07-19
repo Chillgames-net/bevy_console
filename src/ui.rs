@@ -49,7 +49,7 @@ pub(crate) fn sync_console_ui(
 
 #[derive(Resource)]
 pub(crate) struct ConsoleAssets {
-    pub font: Handle<Font>,
+    pub(crate) font: Handle<Font>,
 }
 
 fn console_text_font(font: &Handle<Font>, font_size: f32) -> TextFont {

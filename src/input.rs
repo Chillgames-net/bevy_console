@@ -58,7 +58,7 @@ pub(crate) fn sync_console_input(
         if last_synced.as_ref() != Some(&state.input) {
             set_editable_text(&mut input, &state.input, state.input.len());
         } else {
-            state.replace_input(edited);
+            state.set_input(edited);
             state.cmd_history_index = None;
             state.cmd_history_draft.clear();
         }
@@ -287,7 +287,7 @@ fn submit_console_input(
 
 fn sync_history_selection(state: &mut ConsoleState, input: &mut EditableText, value: String) {
     set_editable_text(input, &value, value.len());
-    state.replace_input(value);
+    state.set_input(value);
 }
 
 fn discard_vertical_cursor_moves(input: &mut EditableText) {

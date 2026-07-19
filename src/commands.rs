@@ -7,7 +7,7 @@ use crate::{
 use bevy::prelude::*;
 use bevy::reflect::{FromReflect, Typed, enums::DynamicEnum};
 
-pub fn plugin(app: &mut App) {
+pub(crate) fn plugin(app: &mut App) {
     let enabled = app.world().resource::<crate::BuiltinCommands>().clone();
     if enabled.contains(&BuiltinCommand::Clear) {
         app.add_console_command(
@@ -373,11 +373,12 @@ mod tests {
         let help = world.register_system(help_cmd);
         {
             let mut registry = world.resource_mut::<ConsoleRegistry>();
-            registry.register(CommandSpec::new("echo").help("echo <text>"), echo, None);
+            registry.register(CommandSpec::new("echo", "echo <text>"), echo, None);
             registry.register(
-                CommandSpec::new("described-echo")
-                    .help("described-echo <text>")
-                    .summary("Echo text to the console"),
+                CommandSpec {
+                    summary: "Echo text to the console",
+                    ..CommandSpec::new("described-echo", "described-echo <text>")
+                },
                 described_echo,
                 None,
             );

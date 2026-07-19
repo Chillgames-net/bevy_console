@@ -150,12 +150,18 @@ mod tests {
         let second = world.register_system(noop);
         let mut registry = ConsoleRegistry::default();
         registry.register(
-            CommandSpec::new("map").help("map").alias("ChangeLevel"),
+            CommandSpec {
+                aliases: vec!["ChangeLevel"],
+                ..CommandSpec::new("map", "map")
+            },
             first,
             None,
         );
         registry.register(
-            CommandSpec::new("map").help("map").alias("LoadMap"),
+            CommandSpec {
+                aliases: vec!["LoadMap"],
+                ..CommandSpec::new("map", "map")
+            },
             second,
             None,
         );
@@ -174,8 +180,15 @@ mod tests {
         let first = world.register_system(noop);
         let second = world.register_system(noop);
         let mut registry = ConsoleRegistry::default();
-        registry.register(CommandSpec::new("foo"), first, None);
-        registry.register(CommandSpec::new("bar").alias("foo"), second, None);
+        registry.register(CommandSpec::new("foo", "foo"), first, None);
+        registry.register(
+            CommandSpec {
+                aliases: vec!["foo"],
+                ..CommandSpec::new("bar", "bar")
+            },
+            second,
+            None,
+        );
     }
 
     #[test]
@@ -185,7 +198,14 @@ mod tests {
         let first = world.register_system(noop);
         let second = world.register_system(noop);
         let mut registry = ConsoleRegistry::default();
-        registry.register(CommandSpec::new("bar").alias("foo"), first, None);
-        registry.register(CommandSpec::new("foo"), second, None);
+        registry.register(
+            CommandSpec {
+                aliases: vec!["foo"],
+                ..CommandSpec::new("bar", "bar")
+            },
+            first,
+            None,
+        );
+        registry.register(CommandSpec::new("foo", "foo"), second, None);
     }
 }

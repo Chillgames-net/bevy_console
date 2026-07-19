@@ -23,7 +23,7 @@ chill_bevy_console = "0.3"
 
 Optional features:
 
-- `embedded-font` — embed `UbuntuMono-R.ttf` so no font asset is required.
+- `embedded-font` — compile in and use the bundled Ubuntu Mono font.
 - `persistent-history` — save and restore a plain-text console input/output
   transcript between runs.
 - `resource-properties` — expose selected fields on Bevy resources through

@@ -47,6 +47,7 @@
 mod args;
 mod commands;
 mod completion;
+mod config;
 mod editor;
 mod execution;
 mod input;
@@ -64,16 +65,14 @@ mod resource_properties;
 #[cfg(feature = "persistent-history")]
 mod persistence;
 
-pub mod config;
-
 pub use args::Args;
 pub use config::{BuiltinCommand, BuiltinCommands, ConsoleConfig};
-pub use logging::{ConsoleLogCapture, console_log_layer};
+pub use logging::console_log_layer;
 pub use model::{
     ArgumentKind, ArgumentSpec, CommandOrigin, CompletionItem, CompletionRequest, ConsoleAliases,
-    ConsoleBinds, ConsoleBuffer, ConsoleCommand, ConsoleCommandExecuted, ConsoleCommandQueue,
-    ConsoleKeyBinding, ConsoleKeyModifiers, ConsoleLevel, ConsoleLine, ConsoleLineMessage,
-    ConsoleLineSource, ConsoleRequest, ConsoleResult,
+    ConsoleBinds, ConsoleBuffer, ConsoleCommand, ConsoleCommandExecuted, ConsoleKeyBinding,
+    ConsoleKeyModifiers, ConsoleLevel, ConsoleLine, ConsoleLineMessage, ConsoleLineSource,
+    ConsoleRequest, ConsoleResult,
 };
 pub use parser::{ParseError, ParsedInput, ParsedToken, QuoteStyle};
 #[cfg(feature = "persistent-history")]
@@ -84,9 +83,10 @@ pub use state::ConsoleState;
 #[cfg(feature = "resource-properties")]
 pub use chill_bevy_console_derive::ConsoleResource;
 #[cfg(feature = "resource-properties")]
-pub use resource_properties::{
-    ConsoleProperty, ConsolePropertyValue, ConsoleResource, ConsoleResources,
-};
+pub use resource_properties::{ConsoleProperty, ConsolePropertyValue, ConsoleResource};
+
+pub(crate) use logging::ConsoleLogCapture;
+pub(crate) use model::ConsoleCommandQueue;
 
 // Allows the re-exported derive to refer to this crate when it is used by the
 // crate's own tests and doctests.

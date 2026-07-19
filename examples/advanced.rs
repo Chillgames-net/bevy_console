@@ -27,7 +27,7 @@ struct DebugSettings {
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
-        .init_resource::<MapCatalog>()
+        .insert_resource(MapCatalog(vec!["forest", "fortress", "test_chamber"]))
         .insert_resource(DebugSettings {
             draw_colliders: false,
         })
@@ -42,12 +42,6 @@ fn main() {
         )
         .add_systems(Startup, setup)
         .run();
-}
-
-impl Default for MapCatalog {
-    fn default() -> Self {
-        Self(vec!["forest", "fortress", "test_chamber"])
-    }
 }
 
 fn setup(mut commands: Commands) {
@@ -67,7 +61,7 @@ fn load_map(In(args): CommandArgs, maps: Res<MapCatalog>) -> String {
 
 fn complete_maps(In(request): ConsoleCompletionRequest, maps: Res<MapCatalog>) -> Vec<String> {
     match request.argument_index() {
-        0 => maps.0.iter().map(|name| (*name).to_string()).collect(),
+        0 => maps.0.iter().copied().map(str::to_owned).collect(),
         _ => Vec::new(),
     }
 }
