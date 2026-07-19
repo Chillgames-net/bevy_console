@@ -74,6 +74,10 @@ impl ConsoleRegistry {
         let Some(def) = self.commands.get_mut(&command) else {
             return false;
         };
+        assert!(
+            def.completer.is_none(),
+            "command `{command}` already has a completer"
+        );
         def.completer = Some(system_id);
         true
     }
@@ -146,11 +150,15 @@ impl ConsoleRegistry {
 #[cfg(test)]
 mod tests {
     use super::ConsoleRegistry;
-    use crate::{Args, CommandSpec, ConsoleResult};
+    use crate::{Args, CommandSpec, CompletionItem, ConsoleCompletionRequest, ConsoleResult};
     use bevy::prelude::*;
 
     fn noop(In(_args): In<Args>) -> ConsoleResult {
         ConsoleResult::default()
+    }
+
+    fn complete(In(_request): ConsoleCompletionRequest) -> Vec<CompletionItem> {
+        Vec::new()
     }
 
     #[test]
@@ -189,5 +197,18 @@ mod tests {
         let mut registry = ConsoleRegistry::default();
         registry.register_result_spec(CommandSpec::new("bar").alias("foo"), first);
         registry.register_result_spec(CommandSpec::new("foo"), second);
+    }
+
+    #[test]
+    #[should_panic(expected = "already has a completer")]
+    fn command_cannot_register_multiple_completers() {
+        let mut world = World::new();
+        let command = world.register_system(noop);
+        let first = world.register_system(complete);
+        let second = world.register_system(complete);
+        let mut registry = ConsoleRegistry::default();
+        registry.register_result_spec(CommandSpec::new("map"), command);
+        assert!(registry.register_completer("map", first));
+        registry.register_completer("map", second);
     }
 }

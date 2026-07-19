@@ -242,6 +242,16 @@ impl ConsoleAppExt for App {
         O::Item: Into<CompletionItem>,
     {
         self.init_resource::<ConsoleRegistry>();
+        {
+            let registry = self.world().resource::<ConsoleRegistry>();
+            let Some(def) = registry.get(command) else {
+                panic!("cannot attach a completer to unknown command `{command}`");
+            };
+            assert!(
+                def.completer.is_none(),
+                "command `{command}` already has a completer"
+            );
+        }
         let system_id = self
             .world_mut()
             .register_system(completer.map(into_completion_items::<O>));
@@ -249,10 +259,7 @@ impl ConsoleAppExt for App {
             .world_mut()
             .resource_mut::<ConsoleRegistry>()
             .register_completer(command, system_id);
-        assert!(
-            registered,
-            "cannot attach a completer to unknown command `{command}`"
-        );
+        debug_assert!(registered);
         self
     }
 

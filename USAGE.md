@@ -84,6 +84,10 @@ fn complete_maps(
 app.add_console_completer("map", complete_maps);
 ```
 
+A registered completer owns completion for every argument of its command. In
+particular, returning `Vec::new()` suppresses the built-in boolean or choice
+suggestions declared with `ArgumentSpec` for that argument position.
+
 Quoted arguments and backslash escapes are parsed before execution, so commands
 receive `map "my test map"` as one argument. Tab inserts the selected command
 or argument candidate; Up/Down selects candidates or command history. When
