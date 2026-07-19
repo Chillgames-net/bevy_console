@@ -8,13 +8,13 @@
 //!
 //! ```no_run
 //! use bevy::prelude::*;
-//! use chill_bevy_console::{ChillConsole, CommandArgs, ConsoleAppExt, console_closed};
+//! use chill_bevy_console::{ChillConsole, CommandArgs, ConsoleAppExt, ConsoleCommand, console_closed};
 //!
 //! fn main() {
 //!     App::new()
 //!         .add_plugins(DefaultPlugins)
 //!         .add_plugins(ChillConsole::default())
-//!         .add_console_command("say", "say <text> - echo text", say_cmd)
+//!         .add_console_command(ConsoleCommand::new("say", "say <text> - echo text", say_cmd))
 //!         .add_systems(Update, gameplay_input.run_if(console_closed))
 //!         .run();
 //! }
@@ -47,6 +47,7 @@
 mod args;
 mod commands;
 mod completion;
+mod config;
 mod editor;
 mod execution;
 mod input;
@@ -64,29 +65,28 @@ mod resource_properties;
 #[cfg(feature = "persistent-history")]
 mod persistence;
 
-pub mod config;
-
 pub use args::Args;
 pub use config::{BuiltinCommand, BuiltinCommands, ConsoleConfig};
-pub use logging::{ConsoleLogCapture, console_log_layer};
+pub use logging::console_log_layer;
 pub use model::{
-    ArgumentKind, ArgumentSpec, CommandOrigin, CommandSpec, CompletionItem, CompletionRequest,
-    ConsoleAliases, ConsoleBinds, ConsoleBuffer, ConsoleCommandExecuted, ConsoleCommandQueue,
-    ConsoleKeyBinding, ConsoleKeyModifiers, ConsoleLevel, ConsoleLine, ConsoleLineMessage,
-    ConsoleLineSource, ConsoleRequest, ConsoleResult,
+    ArgumentKind, ArgumentSpec, CommandOrigin, CompletionItem, CompletionRequest, ConsoleAliases,
+    ConsoleBinds, ConsoleBuffer, ConsoleCommand, ConsoleCommandExecuted, ConsoleKeyBinding,
+    ConsoleKeyModifiers, ConsoleLevel, ConsoleLine, ConsoleLineMessage, ConsoleLineSource,
+    ConsoleRequest, ConsoleResult,
 };
 pub use parser::{ParseError, ParsedInput, ParsedToken, QuoteStyle};
 #[cfg(feature = "persistent-history")]
 pub use persistence::ConsolePersistence;
-pub use registry::{CommandDef, CommandExecutor, ConsoleRegistry};
+pub use registry::ConsoleRegistry;
 pub use state::ConsoleState;
 
 #[cfg(feature = "resource-properties")]
 pub use chill_bevy_console_derive::ConsoleResource;
 #[cfg(feature = "resource-properties")]
-pub use resource_properties::{
-    ConsoleProperty, ConsolePropertyValue, ConsoleResource, ConsoleResources,
-};
+pub use resource_properties::{ConsoleProperty, ConsolePropertyValue, ConsoleResource};
+
+pub(crate) use logging::ConsoleLogCapture;
+pub(crate) use model::ConsoleCommandQueue;
 
 // Allows the re-exported derive to refer to this crate when it is used by the
 // crate's own tests and doctests.
@@ -132,53 +132,37 @@ use ui::{ConsoleAssets, console_open_and_changed, sync_console_ui, update_consol
 /// ```
 pub type CommandArgs = In<Args>;
 
+/// The input type for console completion systems.
+///
+/// ```no_run
+/// # use chill_bevy_console::ConsoleCompletionRequest;
+/// # use bevy::prelude::*;
+/// fn complete_map(In(request): ConsoleCompletionRequest) -> Vec<String> {
+///     match request.argument_index() {
+///         0 => vec!["forest".into()],
+///         _ => Vec::new(),
+///     }
+/// }
+/// ```
+pub type ConsoleCompletionRequest = In<CompletionRequest>;
+
 // ── App extension ──────────────────────────────────────────────────────────────
 
 pub trait ConsoleAppExt {
-    /// Register a Bevy system as a console command.
-    ///
-    /// The system receives the command arguments as `In<Args>` and must
-    /// return a type that converts into [`ConsoleResult`]. Most commands return
-    /// a `String` (the output shown in the console, or empty for no output).
-    /// Return `ConsoleResult` to emit lines with individual severity levels.
+    /// Registers a console command builder.
     ///
     /// ```no_run
-    /// # use chill_bevy_console::{CommandArgs, ConsoleAppExt};
+    /// # use chill_bevy_console::{CommandArgs, ConsoleAppExt, ConsoleCommand};
     /// # use bevy::prelude::*;
     /// fn say_cmd(In(args): CommandArgs) -> String {
     ///     args.join(" ")
     /// }
     /// # let mut app = App::new();
-    /// app.add_console_command("say", "say <text> - echo text", say_cmd);
+    /// app.add_console_command(
+    ///     ConsoleCommand::new("say", "say <text> - echo text", say_cmd),
+    /// );
     /// ```
-    fn add_console_command<M, O>(
-        &mut self,
-        name: &'static str,
-        usage: &'static str,
-        system: impl IntoSystem<In<Args>, O, M> + 'static,
-    ) -> &mut Self
-    where
-        O: Into<ConsoleResult> + 'static;
-
-    /// Register a command with aliases, argument choices, dynamic completion,
-    /// and structured help. Command systems may return either `String` or
-    /// [`ConsoleResult`].
-    fn add_console_command_spec<M, O>(
-        &mut self,
-        spec: CommandSpec,
-        system: impl IntoSystem<In<Args>, O, M> + 'static,
-    ) -> &mut Self
-    where
-        O: Into<ConsoleResult> + 'static;
-
-    /// Add a dynamic completer for one argument of a registered command. The
-    /// completer is a normal Bevy system and may query resources or entities.
-    fn add_console_completer<M>(
-        &mut self,
-        command: &str,
-        argument_index: usize,
-        completer: impl IntoSystem<In<CompletionRequest>, Vec<CompletionItem>, M> + 'static,
-    ) -> &mut Self;
+    fn add_console_command(&mut self, command: ConsoleCommand) -> &mut Self;
 
     /// Register the opt-in console properties generated for a Bevy resource.
     #[cfg(feature = "resource-properties")]
@@ -186,51 +170,16 @@ pub trait ConsoleAppExt {
 }
 
 impl ConsoleAppExt for App {
-    fn add_console_command<M, O>(
-        &mut self,
-        name: &'static str,
-        usage: &'static str,
-        system: impl IntoSystem<In<Args>, O, M> + 'static,
-    ) -> &mut Self
-    where
-        O: Into<ConsoleResult> + 'static,
-    {
-        self.add_console_command_spec(CommandSpec::new(name).help(usage), system)
-    }
-
-    fn add_console_command_spec<M, O>(
-        &mut self,
-        spec: CommandSpec,
-        system: impl IntoSystem<In<Args>, O, M> + 'static,
-    ) -> &mut Self
-    where
-        O: Into<ConsoleResult> + 'static,
-    {
+    fn add_console_command(&mut self, command: ConsoleCommand) -> &mut Self {
         self.init_resource::<ConsoleRegistry>();
-        let system_id = self
-            .world_mut()
-            .register_system(system.map(into_console_result::<O>));
-        self.world_mut()
-            .resource_mut::<ConsoleRegistry>()
-            .register_result_spec(spec, system_id);
-        self
-    }
-
-    fn add_console_completer<M>(
-        &mut self,
-        command: &str,
-        argument_index: usize,
-        completer: impl IntoSystem<In<CompletionRequest>, Vec<CompletionItem>, M> + 'static,
-    ) -> &mut Self {
-        self.init_resource::<ConsoleRegistry>();
-        let system_id = self.world_mut().register_system(completer);
-        let registered = self
-            .world_mut()
-            .resource_mut::<ConsoleRegistry>()
-            .register_completer(command, argument_index, system_id);
-        assert!(
-            registered,
-            "cannot attach a completer to unknown command `{command}`"
+        let system_id = self.world_mut().register_boxed_system(command.system);
+        let completer_id = command
+            .completer
+            .map(|completer| self.world_mut().register_boxed_system(completer));
+        self.world_mut().resource_mut::<ConsoleRegistry>().register(
+            command.spec,
+            system_id,
+            completer_id,
         );
         self
     }
@@ -240,10 +189,6 @@ impl ConsoleAppExt for App {
         resource_properties::register_resource::<R>(self);
         self
     }
-}
-
-fn into_console_result<O: Into<ConsoleResult>>(output: O) -> ConsoleResult {
-    output.into()
 }
 
 // ── Run condition ──────────────────────────────────────────────────────────────

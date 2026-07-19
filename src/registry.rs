@@ -1,93 +1,82 @@
-use crate::{Args, CommandSpec, CompletionItem, CompletionRequest, ConsoleResult};
+use crate::{Args, CompletionItem, ConsoleCompletionRequest, ConsoleResult, model::CommandSpec};
 use bevy::ecs::system::SystemId;
 use bevy::prelude::*;
 use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Debug, Clone, Copy)]
-pub enum CommandExecutor {
+pub(crate) enum CommandExecutor {
     Structured(SystemId<In<Args>, ConsoleResult>),
     #[cfg(feature = "resource-properties")]
     Exclusive(fn(&mut World, Args) -> ConsoleResult),
 }
 
-pub struct CommandDef {
+pub(crate) struct CommandDef {
     /// Structured metadata used by help and completion.
-    pub spec: CommandSpec,
-    pub executor: CommandExecutor,
-    pub completers: BTreeMap<usize, SystemId<In<CompletionRequest>, Vec<CompletionItem>>>,
+    pub(crate) spec: CommandSpec,
+    pub(crate) executor: CommandExecutor,
+    pub(crate) completer: Option<SystemId<ConsoleCompletionRequest, Vec<CompletionItem>>>,
 }
 
 /// Registry of all commands available in the console.
 ///
-/// You can inject this as a resource and call `register_result_spec` directly,
-/// but the preferred way is `app.add_console_command(name, usage, my_system)`.
+/// The registry is available as a resource for command lookup. Register
+/// commands through [`crate::ConsoleAppExt`].
 #[derive(Resource, Default)]
 pub struct ConsoleRegistry {
-    pub commands: BTreeMap<String, CommandDef>,
+    pub(crate) commands: BTreeMap<String, CommandDef>,
 }
 
 impl ConsoleRegistry {
-    /// Registers a command that returns structured lines with severity levels.
-    pub fn register_result_spec(
+    pub(crate) fn register(
         &mut self,
         spec: CommandSpec,
         system_id: SystemId<In<Args>, ConsoleResult>,
+        completer: Option<SystemId<ConsoleCompletionRequest, Vec<CompletionItem>>>,
     ) {
-        self.insert(spec, CommandExecutor::Structured(system_id));
+        self.insert_with_completer(spec, CommandExecutor::Structured(system_id), completer);
     }
 
-    /// Registers a command implemented directly against the [`World`].
-    ///
-    /// This is used internally for commands that must dynamically select a
-    /// resource at runtime. Public commands should normally remain Bevy
-    /// systems and use [`Self::register_result_spec`].
     #[cfg(feature = "resource-properties")]
-    pub(crate) fn register_exclusive_spec(
+    pub(crate) fn register_exclusive_spec_with_completer(
         &mut self,
         spec: CommandSpec,
         command: fn(&mut World, Args) -> ConsoleResult,
+        completer: SystemId<ConsoleCompletionRequest, Vec<CompletionItem>>,
     ) {
-        self.insert(spec, CommandExecutor::Exclusive(command));
+        self.insert_with_completer(spec, CommandExecutor::Exclusive(command), Some(completer));
     }
 
-    fn insert(&mut self, spec: CommandSpec, executor: CommandExecutor) {
+    fn insert_with_completer(
+        &mut self,
+        spec: CommandSpec,
+        executor: CommandExecutor,
+        completer: Option<SystemId<ConsoleCompletionRequest, Vec<CompletionItem>>>,
+    ) {
         let name = self.prepare_registration(&spec);
         self.commands.insert(
             name,
             CommandDef {
                 spec,
                 executor,
-                completers: BTreeMap::new(),
+                completer,
             },
         );
     }
 
-    /// Associates a dynamic completion system with a command argument.
-    pub fn register_completer(
-        &mut self,
-        command: &str,
-        argument_index: usize,
-        system_id: SystemId<In<CompletionRequest>, Vec<CompletionItem>>,
-    ) -> bool {
-        let Some(command) = self.resolve_name(command).map(str::to_owned) else {
-            return false;
-        };
-        let Some(def) = self.commands.get_mut(&command) else {
-            return false;
-        };
-        def.completers.insert(argument_index, system_id);
-        true
-    }
-
     /// Finds a command using its name or an alias, case-insensitively.
-    pub fn get(&self, name: &str) -> Option<&CommandDef> {
+    pub(crate) fn get(&self, name: &str) -> Option<&CommandDef> {
         self.resolve_name(name)
             .and_then(|name| self.commands.get(name))
     }
 
-    pub fn get_mut(&mut self, name: &str) -> Option<&mut CommandDef> {
-        let canonical = self.resolve_name(name)?.to_owned();
-        self.commands.get_mut(&canonical)
+    /// Returns whether a command or registered alias exists, case-insensitively.
+    pub fn contains(&self, name: &str) -> bool {
+        self.resolve_name(name).is_some()
+    }
+
+    /// Iterates over canonical command names in sorted order.
+    pub fn command_names(&self) -> impl Iterator<Item = &str> {
+        self.commands.keys().map(String::as_str)
     }
 
     fn prepare_registration(&self, spec: &CommandSpec) -> String {
@@ -147,7 +136,7 @@ impl ConsoleRegistry {
 #[cfg(test)]
 mod tests {
     use super::ConsoleRegistry;
-    use crate::{Args, CommandSpec, ConsoleResult};
+    use crate::{Args, ConsoleResult, model::CommandSpec};
     use bevy::prelude::*;
 
     fn noop(In(_args): In<Args>) -> ConsoleResult {
@@ -160,14 +149,28 @@ mod tests {
         let first = world.register_system(noop);
         let second = world.register_system(noop);
         let mut registry = ConsoleRegistry::default();
-        registry.register_result_spec(
-            CommandSpec::new("map").help("map").alias("ChangeLevel"),
+        registry.register(
+            CommandSpec {
+                aliases: vec!["ChangeLevel"],
+                ..CommandSpec::new("map", "map")
+            },
             first,
+            None,
         );
-        registry.register_result_spec(CommandSpec::new("map").help("map").alias("LoadMap"), second);
+        registry.register(
+            CommandSpec {
+                aliases: vec!["LoadMap"],
+                ..CommandSpec::new("map", "map")
+            },
+            second,
+            None,
+        );
 
         assert!(registry.get("changelevel").is_none());
         assert!(registry.get("LOADMAP").is_some());
+        assert!(!registry.contains("changelevel"));
+        assert!(registry.contains("LOADMAP"));
+        assert_eq!(registry.command_names().collect::<Vec<_>>(), ["map"]);
     }
 
     #[test]
@@ -177,8 +180,15 @@ mod tests {
         let first = world.register_system(noop);
         let second = world.register_system(noop);
         let mut registry = ConsoleRegistry::default();
-        registry.register_result_spec(CommandSpec::new("foo"), first);
-        registry.register_result_spec(CommandSpec::new("bar").alias("foo"), second);
+        registry.register(CommandSpec::new("foo", "foo"), first, None);
+        registry.register(
+            CommandSpec {
+                aliases: vec!["foo"],
+                ..CommandSpec::new("bar", "bar")
+            },
+            second,
+            None,
+        );
     }
 
     #[test]
@@ -188,7 +198,14 @@ mod tests {
         let first = world.register_system(noop);
         let second = world.register_system(noop);
         let mut registry = ConsoleRegistry::default();
-        registry.register_result_spec(CommandSpec::new("bar").alias("foo"), first);
-        registry.register_result_spec(CommandSpec::new("foo"), second);
+        registry.register(
+            CommandSpec {
+                aliases: vec!["foo"],
+                ..CommandSpec::new("bar", "bar")
+            },
+            first,
+            None,
+        );
+        registry.register(CommandSpec::new("foo", "foo"), second, None);
     }
 }

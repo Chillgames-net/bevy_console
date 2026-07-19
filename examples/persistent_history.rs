@@ -6,7 +6,9 @@
 //! Run with: `cargo run --example persistent_history --features persistent-history`
 
 use bevy::prelude::*;
-use chill_bevy_console::{ChillConsole, CommandArgs, ConsoleAppExt, ConsolePersistence};
+use chill_bevy_console::{
+    ChillConsole, CommandArgs, ConsoleAppExt, ConsoleCommand, ConsolePersistence,
+};
 
 fn main() {
     App::new()
@@ -18,7 +20,11 @@ fn main() {
             },
             ..default()
         })
-        .add_console_command("say", "say <text> - echo text", say_cmd)
+        .add_console_command(ConsoleCommand::new(
+            "say",
+            "say <text> - echo text",
+            say_cmd,
+        ))
         .add_systems(Startup, setup)
         .run();
 }

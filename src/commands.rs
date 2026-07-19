@@ -1,61 +1,62 @@
 use crate::{
-    ArgumentSpec, BuiltinCommand, CommandArgs, CommandSpec, CompletionItem, CompletionRequest,
-    ConsoleAliases, ConsoleAppExt, ConsoleBinds, ConsoleBuffer, ConsoleKeyBinding,
-    ConsoleKeyModifiers, ConsoleRegistry, ConsoleResult,
+    ArgumentSpec, BuiltinCommand, CommandArgs, CompletionItem, CompletionRequest, ConsoleAliases,
+    ConsoleAppExt, ConsoleBinds, ConsoleBuffer, ConsoleCommand, ConsoleCompletionRequest,
+    ConsoleKeyBinding, ConsoleKeyModifiers, ConsoleRegistry, ConsoleResult,
     completion::{runtime_command_completions, static_completion_items},
 };
 use bevy::prelude::*;
 use bevy::reflect::{FromReflect, Typed, enums::DynamicEnum};
 
-pub fn plugin(app: &mut App) {
+pub(crate) fn plugin(app: &mut App) {
     let enabled = app.world().resource::<crate::BuiltinCommands>().clone();
     if enabled.contains(&BuiltinCommand::Clear) {
-        app.add_console_command_spec(
-            CommandSpec::new("clear")
-                .help("clear - clear the console output")
-                .summary("Clear the console output"),
-            clear_cmd,
+        app.add_console_command(
+            ConsoleCommand::new("clear", "clear - clear the console output", clear_cmd)
+                .with_summary("Clear the console output"),
         );
     }
     if enabled.contains(&BuiltinCommand::Help) {
-        app.add_console_command_spec(
-            CommandSpec::new("help")
-                .help("help [command] - show available commands or command help")
-                .summary("Show command help")
-                .args([ArgumentSpec::new("command").help("Command to describe")]),
-            help_cmd,
+        app.add_console_command(
+            ConsoleCommand::new(
+                "help",
+                "help [command] - show available commands or command help",
+                help_cmd,
+            )
+            .with_summary("Show command help")
+            .with_args([ArgumentSpec::new("command").help("Command to describe")]),
         );
     }
     if enabled.contains(&BuiltinCommand::Alias) {
-        app.add_console_command_spec(
-            CommandSpec::new("alias")
-                .help("alias <list|get|set|remove> [name] [command...] - manage runtime aliases")
-                .summary("Manage runtime command aliases")
-                .args([
-                    ArgumentSpec::new("operation"),
-                    ArgumentSpec::new("name").help("Alias name"),
-                    ArgumentSpec::new("command").help("Command expansion"),
-                ]),
-            alias_cmd,
-        )
-        .add_console_completer("alias", 0, complete_alias_operations)
-        .add_console_completer("alias", 1, complete_alias_names)
-        .add_console_completer("alias", 2, complete_commands_after_set);
+        app.add_console_command(
+            ConsoleCommand::new(
+                "alias",
+                "alias <list|get|set|remove> [name] [command...] - manage runtime aliases",
+                alias_cmd,
+            )
+            .with_summary("Manage runtime command aliases")
+            .with_args([
+                ArgumentSpec::new("operation"),
+                ArgumentSpec::new("name").help("Alias name"),
+                ArgumentSpec::new("command").help("Command expansion"),
+            ])
+            .with_completions(complete_alias),
+        );
     }
     if enabled.contains(&BuiltinCommand::Bind) {
-        app.add_console_command_spec(
-            CommandSpec::new("bind")
-                .help("bind <list|get|set|remove> [key] [command...] - manage key bindings")
-                .summary("Manage runtime key bindings")
-                .args([
-                    ArgumentSpec::new("operation"),
-                    ArgumentSpec::new("key").help("Key binding, e.g. meta+KeyW or F1"),
-                    ArgumentSpec::new("command").help("Command to run"),
-                ]),
-            bind_cmd,
-        )
-        .add_console_completer("bind", 0, complete_bind_operations)
-        .add_console_completer("bind", 2, complete_commands_after_set);
+        app.add_console_command(
+            ConsoleCommand::new(
+                "bind",
+                "bind <list|get|set|remove> [key] [command...] - manage key bindings",
+                bind_cmd,
+            )
+            .with_summary("Manage runtime key bindings")
+            .with_args([
+                ArgumentSpec::new("operation"),
+                ArgumentSpec::new("key").help("Key binding, e.g. meta+KeyW or F1"),
+                ArgumentSpec::new("command").help("Command to run"),
+            ])
+            .with_completions(complete_bind),
+        );
     }
 }
 
@@ -146,7 +147,7 @@ fn alias_cmd(
             if args.len() < 3 {
                 return ConsoleResult::error("Usage: alias set <name> <command...>");
             }
-            if registry.get(name).is_some() {
+            if registry.contains(name) {
                 return ConsoleResult::error(format!(
                     "Cannot create alias `{}`: it is already a registered command",
                     name
@@ -173,39 +174,38 @@ fn alias_cmd(
     }
 }
 
-fn complete_alias_operations(In(request): In<CompletionRequest>) -> Vec<CompletionItem> {
-    static_completion_items(
-        &request,
-        [
-            ("list", "Lists runtime aliases"),
-            ("get", "Shows an alias"),
-            ("set", "Creates or updates an alias"),
-            ("remove", "Removes an alias"),
-        ],
-    )
+fn complete_alias(
+    In(request): ConsoleCompletionRequest,
+    aliases: Res<ConsoleAliases>,
+    registry: Res<ConsoleRegistry>,
+) -> Vec<CompletionItem> {
+    match request.argument_index() {
+        0 => complete_alias_operations(),
+        1 => complete_alias_names(&request, &aliases),
+        2 => complete_commands_after_set(&request, &registry, &aliases),
+        _ => Vec::new(),
+    }
+}
+
+fn complete_alias_operations() -> Vec<CompletionItem> {
+    static_completion_items([
+        ("list", "Lists runtime aliases"),
+        ("get", "Shows an alias"),
+        ("set", "Creates or updates an alias"),
+        ("remove", "Removes an alias"),
+    ])
 }
 
 fn complete_alias_names(
-    In(request): In<CompletionRequest>,
-    aliases: Res<ConsoleAliases>,
+    request: &CompletionRequest,
+    aliases: &ConsoleAliases,
 ) -> Vec<CompletionItem> {
-    if !matches!(
-        request
-            .parsed
-            .tokens
-            .get(1)
-            .map(|token| token.value.as_str()),
-        Some("get" | "remove")
-    ) {
+    if !matches!(request.argument(0), Some("get" | "remove")) {
         return Vec::new();
     }
     aliases
         .iter()
-        .map(|(name, expansion)| {
-            let mut item = CompletionItem::new(name, request.parsed.replacement_range());
-            item.detail = expansion.into();
-            item
-        })
+        .map(|(name, expansion)| CompletionItem::new(name, expansion))
         .collect()
 }
 
@@ -274,34 +274,36 @@ fn bind_cmd(In(args): CommandArgs, mut binds: ResMut<ConsoleBinds>) -> ConsoleRe
     }
 }
 
-fn complete_bind_operations(In(request): In<CompletionRequest>) -> Vec<CompletionItem> {
-    static_completion_items(
-        &request,
-        [
-            ("list", "Lists runtime key bindings"),
-            ("get", "Shows a key binding"),
-            ("set", "Creates or updates a key binding"),
-            ("remove", "Removes a key binding"),
-        ],
-    )
-}
-
-fn complete_commands_after_set(
-    In(request): In<CompletionRequest>,
+fn complete_bind(
+    In(request): ConsoleCompletionRequest,
     registry: Res<ConsoleRegistry>,
     aliases: Res<ConsoleAliases>,
 ) -> Vec<CompletionItem> {
-    if !matches!(
-        request
-            .parsed
-            .tokens
-            .get(1)
-            .map(|token| token.value.as_str()),
-        Some("set")
-    ) {
+    match request.argument_index() {
+        0 => complete_bind_operations(),
+        2 => complete_commands_after_set(&request, &registry, &aliases),
+        _ => Vec::new(),
+    }
+}
+
+fn complete_bind_operations() -> Vec<CompletionItem> {
+    static_completion_items([
+        ("list", "Lists runtime key bindings"),
+        ("get", "Shows a key binding"),
+        ("set", "Creates or updates a key binding"),
+        ("remove", "Removes a key binding"),
+    ])
+}
+
+fn complete_commands_after_set(
+    request: &CompletionRequest,
+    registry: &ConsoleRegistry,
+    aliases: &ConsoleAliases,
+) -> Vec<CompletionItem> {
+    if !matches!(request.argument(0), Some("set")) {
         return Vec::new();
     }
-    runtime_command_completions(&registry, &aliases, request.parsed.replacement_range())
+    runtime_command_completions(registry, aliases)
 }
 
 fn parse_key_binding(input: &str) -> Option<ConsoleKeyBinding> {
@@ -349,9 +351,10 @@ fn parse_keycode(name: &str) -> Option<KeyCode> {
 #[cfg(test)]
 mod tests {
     use super::{help_cmd, parse_key_binding, plugin};
+    use crate::model::CommandSpec;
     use crate::{
-        Args, BuiltinCommand, BuiltinCommands, CommandArgs, CommandSpec, ConsoleAliases,
-        ConsoleBinds, ConsoleBuffer, ConsoleCommandExecuted, ConsoleCommandQueue, ConsoleConfig,
+        Args, BuiltinCommand, BuiltinCommands, CommandArgs, ConsoleAliases, ConsoleBinds,
+        ConsoleBuffer, ConsoleCommandExecuted, ConsoleCommandQueue, ConsoleConfig,
         ConsoleKeyBinding, ConsoleKeyModifiers, ConsoleLevel, ConsoleRegistry, ConsoleRequest,
         ConsoleResult, ConsoleState,
     };
@@ -370,12 +373,14 @@ mod tests {
         let help = world.register_system(help_cmd);
         {
             let mut registry = world.resource_mut::<ConsoleRegistry>();
-            registry.register_result_spec(CommandSpec::new("echo").help("echo <text>"), echo);
-            registry.register_result_spec(
-                CommandSpec::new("described-echo")
-                    .help("described-echo <text>")
-                    .summary("Echo text to the console"),
+            registry.register(CommandSpec::new("echo", "echo <text>"), echo, None);
+            registry.register(
+                CommandSpec {
+                    summary: "Echo text to the console",
+                    ..CommandSpec::new("described-echo", "described-echo <text>")
+                },
                 described_echo,
+                None,
             );
         }
 

@@ -1,9 +1,9 @@
 //! Command request queueing, execution, and output collection.
 
+use crate::registry::CommandExecutor;
 use crate::{
-    Args, CommandExecutor, ConsoleAliases, ConsoleBuffer, ConsoleCommandExecuted,
-    ConsoleCommandQueue, ConsoleLevel, ConsoleLineMessage, ConsoleLineSource, ConsoleRegistry,
-    ConsoleRequest, ConsoleState,
+    Args, ConsoleAliases, ConsoleBuffer, ConsoleCommandExecuted, ConsoleCommandQueue, ConsoleLevel,
+    ConsoleLineMessage, ConsoleLineSource, ConsoleRegistry, ConsoleRequest, ConsoleState,
 };
 use bevy::prelude::*;
 

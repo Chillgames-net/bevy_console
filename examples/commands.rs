@@ -10,7 +10,7 @@
 //! Run with: `cargo run --example commands`
 
 use bevy::prelude::*;
-use chill_bevy_console::{ChillConsole, CommandArgs, ConsoleAppExt};
+use chill_bevy_console::{ChillConsole, CommandArgs, ConsoleAppExt, ConsoleCommand};
 
 #[derive(Resource, Default)]
 struct Score(i32);
@@ -20,18 +20,26 @@ fn main() {
         .add_plugins(DefaultPlugins)
         .add_plugins(ChillConsole::default())
         .init_resource::<Score>()
-        .add_console_command(
+        .add_console_command(ConsoleCommand::new(
             "teleport",
             "teleport <x> <y> - parse two floats",
             teleport_cmd,
-        )
-        .add_console_command("greet", "greet <name> - uses args.get", greet_cmd)
-        .add_console_command("echo", "echo <text...> - uses args.rest", echo_cmd)
-        .add_console_command(
+        ))
+        .add_console_command(ConsoleCommand::new(
+            "greet",
+            "greet <name> - uses args.get",
+            greet_cmd,
+        ))
+        .add_console_command(ConsoleCommand::new(
+            "echo",
+            "echo <text...> - uses args.rest",
+            echo_cmd,
+        ))
+        .add_console_command(ConsoleCommand::new(
             "add_score",
             "add_score <n> - mutate a resource",
             add_score_cmd,
-        )
+        ))
         .add_systems(Startup, setup)
         .run();
 }

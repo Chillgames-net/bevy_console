@@ -3,13 +3,17 @@
 //! Run with: `cargo run --example basic`
 
 use bevy::prelude::*;
-use chill_bevy_console::{ChillConsole, CommandArgs, ConsoleAppExt};
+use chill_bevy_console::{ChillConsole, CommandArgs, ConsoleAppExt, ConsoleCommand};
 
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
         .add_plugins(ChillConsole::default())
-        .add_console_command("say", "say <text> - echo text", say_cmd)
+        .add_console_command(ConsoleCommand::new(
+            "say",
+            "say <text> - echo text",
+            say_cmd,
+        ))
         .add_systems(Startup, setup)
         .run();
 }

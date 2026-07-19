@@ -15,7 +15,6 @@ documentation = "https://docs.rs/chill_bevy_console"
 readme = "README.md"
 keywords = ["bevy", "console", "gamedev", "plugin", "dev-tools"]
 categories = ["game-development"]
-autobins = false
 include = [
     "src/**",
     "examples/**",
@@ -24,10 +23,6 @@ include = [
     "README.md",
     "USAGE.md",
 ]
-
-[lib]
-name = "chill_bevy_console"
-path = "src/lib.rs"
 
 [package.metadata.docs.rs]
 all-features = true
@@ -60,36 +55,13 @@ chill_bevy_console_derive = { version = "0.3.0", path = "derive", optional = tru
 bevy = "0.19"
 
 [[example]]
-name = "basic"
-path = "examples/basic.rs"
-
-[[example]]
-name = "commands"
-path = "examples/commands.rs"
-
-[[example]]
-name = "custom_config"
-path = "examples/custom_config.rs"
-
-[[example]]
-name = "bindings"
-path = "examples/bindings.rs"
-
-[[example]]
-name = "gameplay_blocking"
-path = "examples/gameplay_blocking.rs"
-
-[[example]]
 name = "persistent_history"
-path = "examples/persistent_history.rs"
 required-features = ["persistent-history"]
 
 [[example]]
 name = "advanced"
-path = "examples/advanced.rs"
 required-features = ["resource-properties"]
 
 [[example]]
 name = "resource_properties"
-path = "examples/resource_properties.rs"
 required-features = ["resource-properties"]

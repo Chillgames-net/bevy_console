@@ -5,13 +5,16 @@
 Commands are plain Bevy systems that receive `CommandArgs` (`In<Args>`) and return a `String` or `ConsoleResult`. `String` is converted to an info-level `ConsoleResult` automatically:
 
 ```rust
-use chill_bevy_console::CommandArgs;
+use bevy::prelude::*;
+use chill_bevy_console::{CommandArgs, ConsoleAppExt, ConsoleCommand};
 
 fn say_cmd(In(args): CommandArgs) -> String {
     args.join(" ")
 }
 
-app.add_console_command("say", "say <text> - echo text to the console", say_cmd);
+app.add_console_command(
+    ConsoleCommand::new("say", "say <text> - echo text to the console", say_cmd),
+);
 ```
 
 `Args` dereferences to `[String]` (giving you `join`, `len`, `iter`, …) and adds three helpers:
@@ -45,42 +48,43 @@ fn goto_level_cmd(In(args): CommandArgs, mut level: ResMut<LevelManager>) -> Str
 
 ## Rich commands and argument completion
 
-Keep `add_console_command` for the common case. When a command needs aliases,
-structured help or completion metadata, use
-`CommandSpec`; its handler is still a normal Bevy system:
+Use `ConsoleCommand` for every command; it scales from the simplest command to
+aliases, structured help, and dynamic completion:
 
 ```rust
-use chill_bevy_console::{ArgumentSpec, CommandSpec, ConsoleAppExt};
+use chill_bevy_console::{ArgumentSpec, ConsoleAppExt, ConsoleCommand};
 
-app.add_console_command_spec(
-    CommandSpec::new("map")
-        .help("map <name> - load a map")
-        .summary("Load a map by name")
-        .alias("changelevel")
-        .args([ArgumentSpec::new("name").help("Map asset name")]),
-    load_map,
+app.add_console_command(
+    ConsoleCommand::new("map", "map <name> - load a map", load_map)
+        .with_summary("Load a map by name")
+        .with_alias("changelevel")
+        .with_args([ArgumentSpec::new("name").help("Map asset name")])
+        .with_completions(complete_maps),
 );
 ```
 
 For dynamic values—entities, loaded assets, saved games, or map names—attach a
-normal Bevy system as a completer. It receives the parsed command and active
-argument, and can query game resources as usual:
+normal Bevy system as a completer. It runs for every argument of that command;
+use `request.argument_index()` to select behavior and `request.argument(i)` to
+inspect preceding values. It can query game resources as usual:
 
 ```rust
 use bevy::prelude::*;
-use chill_bevy_console::{CompletionItem, CompletionRequest, ConsoleAppExt};
+use chill_bevy_console::ConsoleCompletionRequest;
 
 fn complete_maps(
-    In(request): In<CompletionRequest>,
+    In(request): ConsoleCompletionRequest,
     maps: Res<MapCatalog>,
-) -> Vec<CompletionItem> {
-    maps.names()
-        .map(|name| CompletionItem::new(name, request.parsed.replacement_range()))
-        .collect()
+) -> Vec<String> {
+    match request.argument_index() {
+        0 => maps.names().map(str::to_owned).collect(),
+        _ => Vec::new(),
+    }
 }
-
-app.add_console_completer("map", 0, complete_maps);
 ```
+
+When a completer returns no candidates, completion falls back to the boolean or
+choice suggestions declared with `ArgumentSpec` for that argument position.
 
 Quoted arguments and backslash escapes are parsed before execution, so commands
 receive `map "my test map"` as one argument. Tab inserts the selected command
@@ -166,6 +170,19 @@ fn run_startup_command(mut commands: MessageWriter<ConsoleRequest>) {
 }
 ```
 
+To prefill the editable input without executing it, use `ConsoleState::set_input`;
+`ConsoleState::input` returns the current value:
+
+```rust
+use bevy::prelude::*;
+use chill_bevy_console::ConsoleState;
+
+fn prefill_console(mut state: ResMut<ConsoleState>) {
+    state.set_input("help");
+    assert_eq!(state.input(), "help");
+}
+```
+
 For log or game output, write `ConsoleLineMessage` values. Use its convenience
 constructor for ordinary output, or fill in the level and source when they
 matter:
@@ -225,7 +242,7 @@ directly, or as a starting point with struct-update syntax:
 .add_plugins(ChillConsole {
     config: ConsoleConfig {
         toggle_key: KeyCode::F1,
-        ..ConsoleConfig::chillgames() // also: matrix(), source(), simple()
+        ..ConsoleConfig::chillgames() // also: matrix(), source()
     },
     ..default()
 })
@@ -259,8 +276,8 @@ let plugin = ChillConsole {
 ## Embedded font
 
 By default, `ConsoleConfig::font_path = None` falls back to Bevy's built-in
-font. If you'd rather not ship a font asset, enable the `embedded-font` cargo
-feature — `UbuntuMono-R.ttf` is compiled into the binary and used automatically.
+font. Enable `embedded-font` to use the bundled Ubuntu Mono font instead;
+`UbuntuMono-R.ttf` is compiled into the binary and selected automatically.
 
 ```toml
 chill_bevy_console = { version = "0.3", features = ["embedded-font"] }

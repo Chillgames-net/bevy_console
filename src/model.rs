@@ -2,6 +2,7 @@
 //! logging, and the console UI.
 
 use crate::parser::ParsedInput;
+use bevy::ecs::system::{BoxedSystem, IntoSystem};
 use bevy::prelude::{ButtonInput, KeyCode, Message, Resource};
 use std::collections::{BTreeMap, VecDeque};
 use std::ops::Range;
@@ -52,60 +53,112 @@ impl ArgumentSpec {
     }
 }
 
-/// Structured metadata for a command. The executor remains a normal Bevy
-/// system, registered separately by [`crate::ConsoleAppExt`].
+/// Structured metadata retained by the registry after a command is registered.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CommandSpec {
-    pub name: String,
-    pub usage: &'static str,
-    pub summary: &'static str,
-    pub long_help: Option<&'static str>,
-    pub aliases: Vec<&'static str>,
-    pub args: Vec<ArgumentSpec>,
-    pub hidden: bool,
+pub(crate) struct CommandSpec {
+    pub(crate) name: String,
+    pub(crate) usage: &'static str,
+    pub(crate) summary: &'static str,
+    pub(crate) long_help: Option<&'static str>,
+    pub(crate) aliases: Vec<&'static str>,
+    pub(crate) args: Vec<ArgumentSpec>,
+    pub(crate) hidden: bool,
 }
 
 impl CommandSpec {
-    /// Creates a command spec. Add display help with [`Self::help`] as needed.
-    pub fn new(name: impl Into<String>) -> Self {
+    pub(crate) fn new(name: impl Into<String>, usage: &'static str) -> Self {
         Self {
             name: name.into(),
-            usage: "",
-            summary: "",
+            usage,
+            summary: usage,
             long_help: None,
             aliases: Vec::new(),
             args: Vec::new(),
             hidden: false,
         }
     }
+}
 
-    /// Sets the one-line usage and help text shown by the built-in `help` command.
-    pub fn help(mut self, help: &'static str) -> Self {
-        self.usage = help;
-        self.summary = help;
+/// Builder for a console command and its optional completion system.
+///
+/// Register the completed builder through
+/// [`crate::ConsoleAppExt::add_console_command`].
+pub struct ConsoleCommand {
+    pub(crate) spec: CommandSpec,
+    pub(crate) system: BoxedSystem<bevy::prelude::In<crate::Args>, crate::ConsoleResult>,
+    pub(crate) completer: Option<BoxedSystem<crate::ConsoleCompletionRequest, Vec<CompletionItem>>>,
+}
+
+impl ConsoleCommand {
+    /// Creates a command builder with no dynamic completion system.
+    pub fn new<S, M, O>(name: impl Into<String>, help: &'static str, system: S) -> Self
+    where
+        S: IntoSystem<bevy::prelude::In<crate::Args>, O, M> + 'static,
+        O: Into<crate::ConsoleResult> + 'static,
+    {
+        Self {
+            spec: CommandSpec::new(name, help),
+            system: Box::new(IntoSystem::into_system(
+                system.map(into_console_result::<O>),
+            )),
+            completer: None,
+        }
+    }
+
+    /// Attaches the command's dynamic completion system.
+    pub fn with_completions<C, M, O>(mut self, completer: C) -> Self
+    where
+        C: IntoSystem<crate::ConsoleCompletionRequest, O, M> + 'static,
+        O: IntoIterator + 'static,
+        O::Item: Into<CompletionItem>,
+    {
+        self.completer = Some(Box::new(IntoSystem::into_system(
+            completer.map(into_completion_items::<O>),
+        )));
         self
     }
 
-    pub fn summary(mut self, summary: &'static str) -> Self {
-        self.summary = summary;
+    /// Sets the short description shown alongside command completion.
+    pub fn with_summary(mut self, summary: &'static str) -> Self {
+        self.spec.summary = summary;
         self
     }
-    pub fn long_help(mut self, help: &'static str) -> Self {
-        self.long_help = Some(help);
+
+    /// Sets extended text displayed by the built-in help command.
+    pub fn with_long_help(mut self, help: &'static str) -> Self {
+        self.spec.long_help = Some(help);
         self
     }
-    pub fn alias(mut self, alias: &'static str) -> Self {
-        self.aliases.push(alias);
+
+    /// Adds an alternate name for this command.
+    pub fn with_alias(mut self, alias: &'static str) -> Self {
+        self.spec.aliases.push(alias);
         self
     }
-    pub fn args(mut self, args: impl IntoIterator<Item = ArgumentSpec>) -> Self {
-        self.args = args.into_iter().collect();
+
+    /// Sets structured metadata for the command arguments.
+    pub fn with_args(mut self, args: impl IntoIterator<Item = ArgumentSpec>) -> Self {
+        self.spec.args = args.into_iter().collect();
         self
     }
+
+    /// Hides this command from command completion.
     pub fn hidden(mut self) -> Self {
-        self.hidden = true;
+        self.spec.hidden = true;
         self
     }
+}
+
+fn into_console_result<O: Into<crate::ConsoleResult>>(output: O) -> crate::ConsoleResult {
+    output.into()
+}
+
+fn into_completion_items<O>(items: O) -> Vec<CompletionItem>
+where
+    O: IntoIterator,
+    O::Item: Into<CompletionItem>,
+{
+    items.into_iter().map(Into::into).collect()
 }
 
 /// The source that requested a command.
@@ -127,20 +180,21 @@ pub struct ConsoleRequest {
 /// messages. Keeping this separate from UI state allows commands to execute
 /// without pretending to type into the console.
 #[derive(Debug, Default, Resource)]
-pub struct ConsoleCommandQueue {
+pub(crate) struct ConsoleCommandQueue {
     requests: VecDeque<QueuedConsoleRequest>,
 }
 
 #[derive(Debug)]
 pub(crate) struct QueuedConsoleRequest {
-    pub request: ConsoleRequest,
-    pub alias_depth: u8,
+    pub(crate) request: ConsoleRequest,
+    pub(crate) alias_depth: u8,
     /// The recalled history entry whose echo should be linked after alias expansion.
-    pub history_index: Option<usize>,
+    pub(crate) history_index: Option<usize>,
 }
 
-/// User-defined command expansions. Unlike aliases declared on `CommandSpec`,
-/// these can be created and removed at runtime through the `alias` commands.
+/// User-defined command expansions. Unlike aliases declared during command
+/// registration, these can be created and removed at runtime through the
+/// `alias` commands.
 #[derive(Debug, Default, Resource)]
 pub struct ConsoleAliases {
     aliases: BTreeMap<String, String>,
@@ -288,17 +342,18 @@ impl ConsoleAliases {
 }
 
 impl ConsoleCommandQueue {
-    pub fn push(&mut self, request: ConsoleRequest) {
+    pub(crate) fn push(&mut self, request: ConsoleRequest) {
         self.requests.push_back(QueuedConsoleRequest {
             request,
             alias_depth: 0,
             history_index: None,
         });
     }
-    pub fn is_empty(&self) -> bool {
+    pub(crate) fn is_empty(&self) -> bool {
         self.requests.is_empty()
     }
-    pub fn len(&self) -> usize {
+    #[cfg(test)]
+    pub(crate) fn len(&self) -> usize {
         self.requests.len()
     }
 
@@ -338,38 +393,115 @@ impl ConsoleRequest {
     }
 }
 
-/// Input supplied to a command completer. It contains the parser result, so a
-/// completer can inspect preceding arguments without reparsing the input.
+/// Input supplied to a command completer.
+///
+/// A request is only created while completing an argument of a registered
+/// command, so [`Self::command`] and [`Self::argument_index`] are always
+/// available. The parser result remains public for advanced completion logic.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CompletionRequest {
     pub parsed: ParsedInput,
+    command: String,
+    argument_index: usize,
 }
 
-/// A single completion item. `replace` is a source range in the original
-/// input; callers can safely use it to replace only the active argument.
+impl CompletionRequest {
+    pub(crate) fn new(parsed: ParsedInput, command: String, argument_index: usize) -> Self {
+        Self {
+            parsed,
+            command,
+            argument_index,
+        }
+    }
+
+    /// The command being completed, as written in the input.
+    pub fn command(&self) -> &str {
+        &self.command
+    }
+
+    /// The zero-based index of the argument being completed.
+    pub fn argument_index(&self) -> usize {
+        self.argument_index
+    }
+
+    /// Returns a decoded argument value by zero-based index.
+    pub fn argument(&self, index: usize) -> Option<&str> {
+        self.parsed
+            .tokens
+            .get(index.checked_add(1)?)
+            .map(|token| token.value.as_str())
+    }
+
+    /// The decoded text of the argument currently being completed.
+    pub fn active_fragment(&self) -> &str {
+        self.parsed.active_fragment()
+    }
+
+    /// The source range that completion should replace.
+    pub fn replacement_range(&self) -> Range<usize> {
+        self.parsed.replacement_range()
+    }
+}
+
+/// A completion candidate returned by a command completer.
 ///
 /// The default `insert_text` is quoted and escaped automatically when needed.
-/// Assign a different `insert_text` when the completion intentionally inserts
-/// command syntax rather than one argument value.
+/// Use [`Self::insert_text`] when the completion intentionally inserts command
+/// syntax rather than one argument value.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CompletionItem {
-    pub label: String,
-    pub insert_text: String,
-    pub detail: String,
-    pub replace: Range<usize>,
-    pub append_space: bool,
+    pub(crate) label: String,
+    pub(crate) insert_text: String,
+    pub(crate) detail: String,
+    pub(crate) replace: Range<usize>,
+    pub(crate) append_space: bool,
 }
 
 impl CompletionItem {
-    pub fn new(label: impl Into<String>, replace: Range<usize>) -> Self {
+    /// Creates a candidate with its display label and detail text.
+    pub fn new(label: impl Into<String>, detail: impl Into<String>) -> Self {
         let label = label.into();
         Self {
             insert_text: label.clone(),
             label,
-            detail: String::new(),
-            replace,
+            detail: detail.into(),
+            replace: 0..0,
             append_space: true,
         }
+    }
+
+    /// Sets text inserted in place of the candidate label.
+    pub fn insert_text(mut self, text: impl Into<String>) -> Self {
+        self.insert_text = text.into();
+        self
+    }
+
+    /// Controls whether accepting this candidate appends a space.
+    pub fn append_space(mut self, append_space: bool) -> Self {
+        self.append_space = append_space;
+        self
+    }
+
+    #[cfg(test)]
+    pub(crate) fn with_replace(mut self, replace: Range<usize>) -> Self {
+        self.replace = replace;
+        self
+    }
+
+    pub(crate) fn set_replace(&mut self, replace: Range<usize>) {
+        self.replace = replace;
+    }
+}
+
+impl From<String> for CompletionItem {
+    fn from(label: String) -> Self {
+        Self::new(label, "")
+    }
+}
+
+impl From<&str> for CompletionItem {
+    fn from(label: &str) -> Self {
+        Self::new(label, "")
     }
 }
 

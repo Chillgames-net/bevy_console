@@ -13,7 +13,7 @@ const PERSISTENCE_LOG_TARGET: &str = concat!(env!("CARGO_CRATE_NAME"), "::persis
 
 /// Thread-safe staging area shared by the tracing layer and Bevy systems.
 #[derive(Clone, Resource)]
-pub struct ConsoleLogCapture {
+pub(crate) struct ConsoleLogCapture {
     pending: Arc<Mutex<Vec<ConsoleLineMessage>>>,
 }
 

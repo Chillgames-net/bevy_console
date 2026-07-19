@@ -58,7 +58,7 @@ pub(crate) fn sync_console_input(
         if last_synced.as_ref() != Some(&state.input) {
             set_editable_text(&mut input, &state.input, state.input.len());
         } else {
-            state.replace_input(edited);
+            state.set_input(edited);
             state.cmd_history_index = None;
             state.cmd_history_draft.clear();
         }
@@ -287,7 +287,7 @@ fn submit_console_input(
 
 fn sync_history_selection(state: &mut ConsoleState, input: &mut EditableText, value: String) {
     set_editable_text(input, &value, value.len());
-    state.replace_input(value);
+    state.set_input(value);
 }
 
 fn discard_vertical_cursor_moves(input: &mut EditableText) {
@@ -350,8 +350,8 @@ mod tests {
             .init_resource::<ConsoleBinds>()
             .init_resource::<ConsoleCommandQueue>()
             .add_message::<crate::ConsoleCommandExecuted>()
-            .add_console_command("echo", "echo <text>", echo)
-            .add_console_command("status", "status", structured)
+            .add_console_command(crate::ConsoleCommand::new("echo", "echo <text>", echo))
+            .add_console_command(crate::ConsoleCommand::new("status", "status", structured))
             .add_plugins(crate::commands::plugin);
         app
     }
@@ -382,8 +382,8 @@ mod tests {
             .insert_resource(ConsoleState {
                 open: true,
                 completion_items: vec![
-                    crate::CompletionItem::new("alpha", 0..0),
-                    crate::CompletionItem::new("beta", 0..0),
+                    crate::CompletionItem::from("alpha").with_replace(0..0),
+                    crate::CompletionItem::from("beta").with_replace(0..0),
                 ],
                 cmd_history: vec!["echo older".into(), "echo newer".into()],
                 ..default()
@@ -470,8 +470,8 @@ mod tests {
                 open: true,
                 input: "ec".into(),
                 completion_items: vec![
-                    crate::CompletionItem::new("echo", 0..2),
-                    crate::CompletionItem::new("exit", 0..2),
+                    crate::CompletionItem::from("echo").with_replace(0..2),
+                    crate::CompletionItem::from("exit").with_replace(0..2),
                 ],
                 match_index: 1,
                 ..default()
@@ -520,7 +520,7 @@ mod tests {
             .insert_resource(ConsoleState {
                 open: true,
                 input: "ec".into(),
-                completion_items: vec![crate::CompletionItem::new("echo", 0..2)],
+                completion_items: vec![crate::CompletionItem::from("echo").with_replace(0..2)],
                 cmd_history: vec!["ec".into()],
                 cmd_history_index: Some(0),
                 cmd_history_draft: "draft".into(),
