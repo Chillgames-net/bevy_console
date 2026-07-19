@@ -6,7 +6,7 @@
 
 use crate::{
     Args, ArgumentSpec, BuiltinCommand, CommandSpec, CompletionItem, CompletionRequest,
-    ConsoleAppExt, ConsoleRegistry, ConsoleResult,
+    ConsoleAppExt, ConsoleRegistry, ConsoleResult, completion::static_completion_items,
 };
 use bevy::prelude::*;
 use std::collections::BTreeMap;
@@ -368,20 +368,16 @@ fn complete_res_property_names(
 }
 
 fn complete_res_operations(In(request): In<CompletionRequest>) -> Vec<CompletionItem> {
-    [
-        ("add", "Adds to a numeric resource"),
-        ("get", "Shows a resource value"),
-        ("set", "Sets a resource value"),
-        ("sub", "Subtracts from a numeric resource"),
-        ("toggle", "Toggles a boolean resource"),
-    ]
-    .into_iter()
-    .map(|(operation, detail)| {
-        let mut item = CompletionItem::new(operation, request.parsed.replacement_range());
-        item.detail = detail.into();
-        item
-    })
-    .collect()
+    static_completion_items(
+        &request,
+        [
+            ("add", "Adds to a numeric resource"),
+            ("get", "Shows a resource value"),
+            ("set", "Sets a resource value"),
+            ("sub", "Subtracts from a numeric resource"),
+            ("toggle", "Toggles a boolean resource"),
+        ],
+    )
 }
 
 fn complete_res_property_values(
@@ -495,7 +491,7 @@ mod tests {
         app.world_mut()
             .resource_mut::<ConsoleCommandQueue>()
             .push(ConsoleRequest::new("res get debug.draw_colliders"));
-        crate::input::execute_pending_commands(app.world_mut());
+        crate::execution::execute_pending_commands(app.world_mut());
         assert_eq!(
             app.world()
                 .resource::<ConsoleBuffer>()
@@ -508,13 +504,13 @@ mod tests {
         app.world_mut()
             .resource_mut::<ConsoleCommandQueue>()
             .push(ConsoleRequest::new("res set debug.draw_colliders true"));
-        crate::input::execute_pending_commands(app.world_mut());
+        crate::execution::execute_pending_commands(app.world_mut());
         assert!(app.world().resource::<DebugSettings>().draw_colliders);
 
         app.world_mut()
             .resource_mut::<ConsoleCommandQueue>()
             .push(ConsoleRequest::new("res set debug.draw_colliders maybe"));
-        crate::input::execute_pending_commands(app.world_mut());
+        crate::execution::execute_pending_commands(app.world_mut());
 
         let messages = app.world().resource::<Messages<ConsoleCommandExecuted>>();
         let mut cursor = messages.get_cursor();
@@ -533,7 +529,7 @@ mod tests {
         app.world_mut()
             .resource_mut::<ConsoleCommandQueue>()
             .push(ConsoleRequest::new("res add debug.max_fps invalid"));
-        crate::input::execute_pending_commands(app.world_mut());
+        crate::execution::execute_pending_commands(app.world_mut());
         assert_eq!(
             app.world().resource_ref::<DebugSettings>().last_changed(),
             last_changed,
@@ -543,19 +539,19 @@ mod tests {
         app.world_mut()
             .resource_mut::<ConsoleCommandQueue>()
             .push(ConsoleRequest::new("res add debug.max_fps 24"));
-        crate::input::execute_pending_commands(app.world_mut());
+        crate::execution::execute_pending_commands(app.world_mut());
         assert_eq!(app.world().resource::<DebugSettings>().max_fps, 84);
 
         app.world_mut()
             .resource_mut::<ConsoleCommandQueue>()
             .push(ConsoleRequest::new("res sub debug.max_fps 30"));
-        crate::input::execute_pending_commands(app.world_mut());
+        crate::execution::execute_pending_commands(app.world_mut());
         assert_eq!(app.world().resource::<DebugSettings>().max_fps, 54);
 
         app.world_mut()
             .resource_mut::<ConsoleCommandQueue>()
             .push(ConsoleRequest::new("res toggle debug.draw_colliders"));
-        crate::input::execute_pending_commands(app.world_mut());
+        crate::execution::execute_pending_commands(app.world_mut());
         assert!(!app.world().resource::<DebugSettings>().draw_colliders);
     }
 }

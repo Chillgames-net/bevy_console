@@ -1,7 +1,8 @@
 use crate::{
     ArgumentSpec, BuiltinCommand, CommandArgs, CommandSpec, CompletionItem, CompletionRequest,
     ConsoleAliases, ConsoleAppExt, ConsoleBinds, ConsoleBuffer, ConsoleKeyBinding,
-    ConsoleKeyModifiers, ConsoleRegistry, ConsoleResult, completion::runtime_command_completions,
+    ConsoleKeyModifiers, ConsoleRegistry, ConsoleResult,
+    completion::{runtime_command_completions, static_completion_items},
 };
 use bevy::prelude::*;
 use bevy::reflect::{FromReflect, Typed, enums::DynamicEnum};
@@ -39,7 +40,7 @@ pub fn plugin(app: &mut App) {
         )
         .add_console_completer("alias", 0, complete_alias_operations)
         .add_console_completer("alias", 1, complete_alias_names)
-        .add_console_completer("alias", 2, complete_alias_commands);
+        .add_console_completer("alias", 2, complete_commands_after_set);
     }
     if enabled.contains(&BuiltinCommand::Bind) {
         app.add_console_command_spec(
@@ -54,7 +55,7 @@ pub fn plugin(app: &mut App) {
             bind_cmd,
         )
         .add_console_completer("bind", 0, complete_bind_operations)
-        .add_console_completer("bind", 2, complete_bind_commands);
+        .add_console_completer("bind", 2, complete_commands_after_set);
     }
 }
 
@@ -173,7 +174,7 @@ fn alias_cmd(
 }
 
 fn complete_alias_operations(In(request): In<CompletionRequest>) -> Vec<CompletionItem> {
-    operation_items(
+    static_completion_items(
         &request,
         [
             ("list", "Lists runtime aliases"),
@@ -206,24 +207,6 @@ fn complete_alias_names(
             item
         })
         .collect()
-}
-
-fn complete_alias_commands(
-    In(request): In<CompletionRequest>,
-    registry: Res<ConsoleRegistry>,
-    aliases: Res<ConsoleAliases>,
-) -> Vec<CompletionItem> {
-    if !matches!(
-        request
-            .parsed
-            .tokens
-            .get(1)
-            .map(|token| token.value.as_str()),
-        Some("set")
-    ) {
-        return Vec::new();
-    }
-    runtime_command_completions(&registry, &aliases, request.parsed.replacement_range())
 }
 
 fn bind_cmd(In(args): CommandArgs, mut binds: ResMut<ConsoleBinds>) -> ConsoleResult {
@@ -292,7 +275,7 @@ fn bind_cmd(In(args): CommandArgs, mut binds: ResMut<ConsoleBinds>) -> ConsoleRe
 }
 
 fn complete_bind_operations(In(request): In<CompletionRequest>) -> Vec<CompletionItem> {
-    operation_items(
+    static_completion_items(
         &request,
         [
             ("list", "Lists runtime key bindings"),
@@ -303,7 +286,7 @@ fn complete_bind_operations(In(request): In<CompletionRequest>) -> Vec<Completio
     )
 }
 
-fn complete_bind_commands(
+fn complete_commands_after_set(
     In(request): In<CompletionRequest>,
     registry: Res<ConsoleRegistry>,
     aliases: Res<ConsoleAliases>,
@@ -319,20 +302,6 @@ fn complete_bind_commands(
         return Vec::new();
     }
     runtime_command_completions(&registry, &aliases, request.parsed.replacement_range())
-}
-
-fn operation_items<const N: usize>(
-    request: &CompletionRequest,
-    operations: [(&str, &str); N],
-) -> Vec<CompletionItem> {
-    operations
-        .into_iter()
-        .map(|(operation, detail)| {
-            let mut item = CompletionItem::new(operation, request.parsed.replacement_range());
-            item.detail = detail.into();
-            item
-        })
-        .collect()
 }
 
 fn parse_key_binding(input: &str) -> Option<ConsoleKeyBinding> {
@@ -448,7 +417,7 @@ mod tests {
         app.world_mut()
             .resource_mut::<ConsoleCommandQueue>()
             .push(ConsoleRequest::new("alias set clear echo ignored"));
-        crate::input::execute_pending_commands(app.world_mut());
+        crate::execution::execute_pending_commands(app.world_mut());
 
         assert!(
             app.world()
@@ -485,7 +454,7 @@ mod tests {
         app.world_mut()
             .resource_mut::<ConsoleCommandQueue>()
             .push(ConsoleRequest::new("alias set quicksave save slot_1"));
-        crate::input::execute_pending_commands(app.world_mut());
+        crate::execution::execute_pending_commands(app.world_mut());
         assert_eq!(
             app.world().resource::<ConsoleAliases>().get("quicksave"),
             Some("save slot_1")
@@ -494,7 +463,7 @@ mod tests {
         app.world_mut()
             .resource_mut::<ConsoleCommandQueue>()
             .push(ConsoleRequest::new("alias get quicksave"));
-        crate::input::execute_pending_commands(app.world_mut());
+        crate::execution::execute_pending_commands(app.world_mut());
         assert_eq!(
             app.world()
                 .resource::<ConsoleBuffer>()
@@ -507,7 +476,7 @@ mod tests {
         app.world_mut()
             .resource_mut::<ConsoleCommandQueue>()
             .push(ConsoleRequest::new("alias remove quicksave"));
-        crate::input::execute_pending_commands(app.world_mut());
+        crate::execution::execute_pending_commands(app.world_mut());
         assert!(
             app.world()
                 .resource::<ConsoleAliases>()
@@ -607,7 +576,7 @@ mod tests {
         app.world_mut()
             .resource_mut::<ConsoleCommandQueue>()
             .push(ConsoleRequest::new("bind set f1 echo hello"));
-        crate::input::execute_pending_commands(app.world_mut());
+        crate::execution::execute_pending_commands(app.world_mut());
         assert_eq!(
             app.world().resource::<ConsoleBinds>().get(KeyCode::F1),
             Some("echo hello")
@@ -616,7 +585,7 @@ mod tests {
         app.world_mut()
             .resource_mut::<ConsoleCommandQueue>()
             .push(ConsoleRequest::new("bind set ctrl+w echo save"));
-        crate::input::execute_pending_commands(app.world_mut());
+        crate::execution::execute_pending_commands(app.world_mut());
         assert_eq!(
             app.world()
                 .resource::<ConsoleBinds>()
@@ -633,7 +602,7 @@ mod tests {
         app.world_mut()
             .resource_mut::<ConsoleCommandQueue>()
             .push(ConsoleRequest::new("bind get ctrl+w"));
-        crate::input::execute_pending_commands(app.world_mut());
+        crate::execution::execute_pending_commands(app.world_mut());
         assert_eq!(
             app.world()
                 .resource::<ConsoleBuffer>()
@@ -646,7 +615,7 @@ mod tests {
         app.world_mut()
             .resource_mut::<ConsoleCommandQueue>()
             .push(ConsoleRequest::new("bind remove F1"));
-        crate::input::execute_pending_commands(app.world_mut());
+        crate::execution::execute_pending_commands(app.world_mut());
         assert!(
             app.world()
                 .resource::<ConsoleBinds>()

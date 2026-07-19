@@ -1,11 +1,46 @@
 use crate::config::ConsoleConfig;
-use crate::input::set_editable_text;
+use crate::editor::set_editable_text;
 use crate::state::ConsoleState;
 use crate::{ConsoleBuffer, ConsoleLevel};
 use bevy::input_focus::AutoFocus;
 use bevy::picking::pointer::PointerId;
 use bevy::picking::prelude::{Click, Drag, DragEnd, Pointer, PointerButton};
 use bevy::prelude::*;
+
+/// Updates the console view only while visible and after its state or output changes.
+pub(crate) fn console_open_and_changed(
+    state: Option<Res<ConsoleState>>,
+    buffer: Option<Res<ConsoleBuffer>>,
+) -> bool {
+    state.is_some_and(|state| {
+        state.open && (state.is_changed() || buffer.is_some_and(|buffer| buffer.is_changed()))
+    })
+}
+
+/// Spawns or despawns the console UI whenever `state.open` changes.
+/// Reacts to changes from any source (key press, external code, etc.).
+pub(crate) fn sync_console_ui(
+    mut commands: Commands,
+    mut state: ResMut<ConsoleState>,
+    overlay_q: Query<Entity, With<DevConsoleOverlay>>,
+    assets: Res<ConsoleAssets>,
+    config: Res<ConsoleConfig>,
+    mut prev_open: Local<bool>,
+) {
+    if *prev_open == state.open {
+        return;
+    }
+    *prev_open = state.open;
+
+    if state.open {
+        spawn_console_ui(&mut commands, &assets, &config, &state.input);
+        state.mark_input_changed();
+    } else {
+        for entity in &overlay_q {
+            commands.entity(entity).despawn();
+        }
+    }
+}
 use bevy::text::{EditableText, EditableTextFilter, LineHeight, TextCursorStyle, TextLayoutInfo};
 use bevy::ui::{ComputedNode, ScrollPosition, widget::TextScroll};
 use std::collections::{HashSet, VecDeque};

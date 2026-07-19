@@ -1,20 +1,14 @@
 use crate::config::{BuiltinCommand, BuiltinCommands, ConsoleConfig};
+use crate::editor::set_editable_text;
 use crate::state::ConsoleState;
-use crate::ui::{ConsoleAssets, ConsoleInput, DevConsoleOverlay, spawn_console_ui};
-use crate::{
-    Args, CommandExecutor, ConsoleAliases, ConsoleBinds, ConsoleBuffer, ConsoleCommandExecuted,
-    ConsoleCommandQueue, ConsoleLevel, ConsoleLineMessage, ConsoleLineSource, ConsoleRegistry,
-    ConsoleRequest,
-};
+use crate::ui::ConsoleInput;
+use crate::{ConsoleBinds, ConsoleCommandQueue, ConsoleRequest};
 use bevy::ecs::system::SystemParam;
 use bevy::input::ButtonState;
 use bevy::input::keyboard::{Key, KeyboardInput};
-use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
 use bevy::prelude::*;
 use bevy::text::{EditableText, TextEdit};
-use bevy::ui::{ComputedNode, ScrollPosition};
-
-const CONSOLE_SCROLL_SPEED: f32 = 1.25;
+use bevy::ui::ScrollPosition;
 
 #[derive(SystemParam)]
 pub(crate) struct ConsoleInputSettings<'w> {
@@ -26,19 +20,6 @@ pub(crate) struct ConsoleInputSettings<'w> {
 
 pub(crate) fn console_open(state: Option<Res<ConsoleState>>) -> bool {
     state.is_some_and(|s| s.open)
-}
-
-pub(crate) fn has_pending_command(queue: Option<Res<ConsoleCommandQueue>>) -> bool {
-    queue.is_some_and(|queue| !queue.is_empty())
-}
-
-pub(crate) fn console_open_and_changed(
-    state: Option<Res<ConsoleState>>,
-    buffer: Option<Res<ConsoleBuffer>>,
-) -> bool {
-    state.is_some_and(|state| {
-        state.open && (state.is_changed() || buffer.is_some_and(|buffer| buffer.is_changed()))
-    })
 }
 
 // ── Systems ───────────────────────────────────────────────────────────────────
@@ -59,31 +40,6 @@ pub(crate) fn handle_toggle_key(
 
     if keys.just_pressed(config.toggle_key) {
         state.open = !state.open;
-    }
-}
-
-/// Spawns or despawns the console UI whenever `state.open` changes.
-/// Reacts to changes from any source (key press, external code, etc.).
-pub(crate) fn sync_console_ui(
-    mut commands: Commands,
-    mut state: ResMut<ConsoleState>,
-    overlay_q: Query<Entity, With<DevConsoleOverlay>>,
-    assets: Res<ConsoleAssets>,
-    config: Res<ConsoleConfig>,
-    mut prev_open: Local<bool>,
-) {
-    if *prev_open == state.open {
-        return;
-    }
-    *prev_open = state.open;
-
-    if state.open {
-        spawn_console_ui(&mut commands, &assets, &config, &state.input);
-        state.mark_input_changed();
-    } else {
-        for entity in &overlay_q {
-            commands.entity(entity).despawn();
-        }
     }
 }
 
@@ -340,23 +296,6 @@ fn discard_vertical_cursor_moves(input: &mut EditableText) {
         .retain(|edit| !matches!(edit, TextEdit::Up(_) | TextEdit::Down(_)));
 }
 
-pub(crate) fn set_editable_text(input: &mut EditableText, value: &str, cursor: usize) {
-    input.clear();
-    input.editor_mut().set_text(value);
-    let mut cursor = cursor.min(value.len());
-    while !value.is_char_boundary(cursor) {
-        cursor -= 1;
-    }
-    if cursor == value.len() {
-        input.queue_edit(TextEdit::TextEnd(false));
-        return;
-    }
-    input.queue_edit(TextEdit::TextStart(false));
-    for _ in value[..cursor].chars() {
-        input.queue_edit(TextEdit::Right(false));
-    }
-}
-
 /// Queues commands assigned with `bind` while the console is closed.
 pub(crate) fn queue_bound_commands(
     state: Res<ConsoleState>,
@@ -378,245 +317,15 @@ pub(crate) fn queue_bound_commands(
     }
 }
 
-/// Adds command requests sent by game systems to the same FIFO queue as local
-/// keyboard input. Applications can therefore execute a command with
-/// `MessageWriter<ConsoleRequest>` without opening the UI.
-pub(crate) fn queue_console_requests(
-    mut requests: MessageReader<ConsoleRequest>,
-    mut queue: ResMut<ConsoleCommandQueue>,
-) {
-    for request in requests.read() {
-        queue.push(request.clone());
-    }
-}
-
-/// Receives structured lines emitted by game systems.
-pub(crate) fn collect_console_lines(
-    mut messages: MessageReader<ConsoleLineMessage>,
-    mut buffer: ResMut<ConsoleBuffer>,
-) {
-    for line in messages.read() {
-        buffer.push(line.level, line.source.clone(), &line.text);
-    }
-}
-
-pub(crate) fn scroll_console(
-    mut mouse_wheel: MessageReader<MouseWheel>,
-    mut state: ResMut<ConsoleState>,
-    keys: Res<ButtonInput<KeyCode>>,
-    mut history_q: Query<(&mut ScrollPosition, &ComputedNode), With<crate::ui::ConsoleHistory>>,
-) {
-    let wheel_pixels: f32 = mouse_wheel
-        .read()
-        .map(|ev| match ev.unit {
-            MouseScrollUnit::Line => ev.y * MouseScrollUnit::SCROLL_UNIT_CONVERSION_FACTOR,
-            MouseScrollUnit::Pixel => ev.y,
-        })
-        .sum();
-
-    // Drain wheel messages while closed so a pre-open scroll cannot apply to
-    // the newly spawned history panel.
-    if !state.open {
-        return;
-    }
-
-    let key_pixels = if keys.just_pressed(KeyCode::PageUp) {
-        240.0
-    } else if keys.just_pressed(KeyCode::PageDown) {
-        -240.0
-    } else {
-        0.0
-    };
-    if wheel_pixels == 0.0 && key_pixels == 0.0 {
-        return;
-    }
-
-    let Ok((mut scroll_pos, computed)) = history_q.single_mut() else {
-        return;
-    };
-
-    // `MouseWheel` and computed UI sizes are physical pixels, while
-    // `ScrollPosition` is logical pixels. Convert both so scrolling feels
-    // consistent on high-DPI displays.
-    let pixels = (wheel_pixels * computed.inverse_scale_factor + key_pixels) * CONSOLE_SCROLL_SPEED;
-
-    // y = 0 → top (oldest), y = max → bottom (newest).
-    // Wheel up (pixels > 0) → go toward older content → decrease offset.
-    //
-    // When scroll_follow was true, scroll_pos.y may be f32::MAX because Bevy
-    // renders at the clamped bottom but never writes the clamped value back to
-    // the component. Clamp against max_scroll first so the delta is applied
-    // from the real bottom, not from infinity.
-    let max_scroll =
-        (computed.content_size().y - computed.size().y).max(0.0) * computed.inverse_scale_factor;
-    let current = scroll_pos.y.min(max_scroll);
-    let new_y = (current - pixels).clamp(0.0, max_scroll);
-    scroll_pos.y = new_y;
-
-    if pixels > 0.0 {
-        // Scrolling up — stop following tail.
-        if state.scroll_follow {
-            state.scroll_follow = false;
-        }
-    } else if new_y >= max_scroll - 1.0 {
-        // Scrolled back to the bottom — re-enable tail follow.
-        if !state.scroll_follow {
-            state.scroll_follow = true;
-        }
-    }
-}
-
-pub(crate) fn execute_pending_commands(world: &mut World) {
-    let Some(queued) = world.resource_mut::<ConsoleCommandQueue>().pop_front() else {
-        return;
-    };
-    let request = queued.request;
-    let cmd_str = request.input;
-
-    let parsed = crate::ParsedInput::parse(&cmd_str);
-    if let Some(error) = parsed.error {
-        write_line(
-            world,
-            ConsoleLevel::Error,
-            ConsoleLineSource::System,
-            format!("Parse error: {}", error.message),
-        );
-        world.write_message(ConsoleCommandExecuted {
-            input: cmd_str,
-            command: None,
-            origin: request.origin,
-            succeeded: false,
-        });
-        return;
-    }
-    let Some(name) = parsed.command() else { return };
-    let args = Args::from_parsed(&parsed);
-
-    let command = {
-        let registry = world.resource::<ConsoleRegistry>();
-        registry
-            .get(name)
-            .map(|def| (def.spec.name.clone(), def.executor))
-    };
-
-    let Some((command_name, executor)) = command else {
-        if let Some(expansion) = world
-            .resource::<ConsoleAliases>()
-            .get(name)
-            .map(str::to_owned)
-        {
-            if queued.alias_depth >= 16 {
-                write_line(
-                    world,
-                    ConsoleLevel::Error,
-                    ConsoleLineSource::System,
-                    format!("Alias expansion limit exceeded while resolving `{name}`"),
-                );
-                return;
-            }
-            let suffix = &cmd_str[parsed.tokens[0].range.end..];
-            let history_index = queued.history_index.or_else(|| {
-                world
-                    .resource_mut::<ConsoleState>()
-                    .take_pending_history_index(&cmd_str)
-            });
-            world
-                .resource_mut::<ConsoleCommandQueue>()
-                .push_alias_expansion(
-                    ConsoleRequest {
-                        input: format!("{expansion}{suffix}"),
-                        origin: request.origin,
-                    },
-                    queued.alias_depth + 1,
-                    history_index,
-                );
-            return;
-        }
-        write_line(
-            world,
-            ConsoleLevel::Error,
-            ConsoleLineSource::System,
-            format!("Unknown command: {name}"),
-        );
-        world.write_message(ConsoleCommandExecuted {
-            input: cmd_str,
-            command: Some(name.to_string()),
-            origin: request.origin,
-            succeeded: false,
-        });
-        return;
-    };
-
-    let command_source = ConsoleLineSource::Command {
-        name: command_name.clone(),
-    };
-    write_line(
-        world,
-        ConsoleLevel::Info,
-        ConsoleLineSource::CommandEcho {
-            name: command_name.clone(),
-        },
-        format!("> {cmd_str}"),
-    );
-    if let Some(history_index) = queued.history_index.or_else(|| {
-        world
-            .resource_mut::<ConsoleState>()
-            .take_pending_history_index(&cmd_str)
-    }) && let Some(line_id) = world
-        .resource::<ConsoleBuffer>()
-        .last_line()
-        .map(|line| line.id)
-    {
-        world
-            .resource_mut::<ConsoleState>()
-            .set_history_line_id(history_index, line_id);
-    }
-
-    let result = match executor {
-        CommandExecutor::Structured(id) => match world.run_system_with(id, args) {
-            Ok(output) => output.lines,
-            Err(error) => vec![(ConsoleLevel::Error, format!("System error: {error}"))],
-        },
-        #[cfg(feature = "resource-properties")]
-        CommandExecutor::Exclusive(command) => command(world, args).lines,
-    };
-
-    let succeeded = !result
-        .iter()
-        .any(|(level, _)| *level == ConsoleLevel::Error);
-    for (level, text) in result {
-        write_line(world, level, command_source.clone(), text);
-    }
-    world.write_message(ConsoleCommandExecuted {
-        input: cmd_str,
-        command: Some(command_name),
-        origin: request.origin,
-        succeeded,
-    });
-}
-
-fn write_line(
-    world: &mut World,
-    level: ConsoleLevel,
-    source: ConsoleLineSource,
-    text: impl AsRef<str>,
-) {
-    let text = text.as_ref();
-    world
-        .resource_mut::<ConsoleBuffer>()
-        .push(level, source, text);
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{
-        capture_console_input, execute_pending_commands, queue_bound_commands, sync_console_ui,
-    };
-    use crate::ui::{ConsoleAssets, ConsoleHistory, ConsoleInput};
+    use super::{capture_console_input, queue_bound_commands};
+    use crate::execution::execute_pending_commands;
+    use crate::ui::{ConsoleAssets, ConsoleHistory, ConsoleInput, sync_console_ui};
     use crate::{
         BuiltinCommand, BuiltinCommands, CommandArgs, ConsoleAliases, ConsoleAppExt, ConsoleBinds,
         ConsoleBuffer, ConsoleCommandQueue, ConsoleConfig, ConsoleKeyBinding, ConsoleKeyModifiers,
-        ConsoleLevel, ConsoleRequest, ConsoleResult, ConsoleState,
+        ConsoleLevel, ConsoleLineSource, ConsoleRequest, ConsoleResult, ConsoleState,
     };
     use bevy::input::ButtonState;
     use bevy::input::keyboard::{Key, KeyboardInput};
@@ -862,6 +571,31 @@ mod tests {
     }
 
     #[test]
+    fn unknown_commands_echo_the_submitted_input_before_the_error() {
+        let mut app = command_test_app(BuiltinCommands::default());
+        app.world_mut()
+            .resource_mut::<ConsoleState>()
+            .record_command("missing arg".into(), 10);
+        app.world_mut()
+            .resource_mut::<ConsoleCommandQueue>()
+            .push(ConsoleRequest::new("missing arg"));
+
+        execute_pending_commands(app.world_mut());
+
+        let lines = app.world().resource::<ConsoleBuffer>().lines();
+        assert_eq!(lines[0].text, "> missing arg");
+        assert!(matches!(
+            lines[0].source,
+            ConsoleLineSource::CommandEcho { ref name } if name == "missing"
+        ));
+        assert_eq!(lines[1].text, "Unknown command: missing");
+        assert_eq!(
+            app.world().resource::<ConsoleState>().cmd_history_line_ids,
+            [Some(lines[0].id)]
+        );
+    }
+
+    #[test]
     fn executing_a_submitted_command_links_its_recall_entry_to_the_echo_row() {
         let mut app = command_test_app(BuiltinCommands::default());
         app.world_mut()
@@ -923,6 +657,30 @@ mod tests {
         let lines = app.world().resource::<ConsoleBuffer>().lines();
         assert_eq!(lines[0].text, "> echo hello world");
         assert_eq!(lines[1].text, "hello|world");
+    }
+
+    #[test]
+    fn alias_expansion_limit_emits_a_failed_execution_message() {
+        let mut app = command_test_app(BuiltinCommands::default());
+        app.world_mut()
+            .resource_mut::<ConsoleAliases>()
+            .set("loop", "loop");
+        app.world_mut()
+            .resource_mut::<ConsoleCommandQueue>()
+            .push(ConsoleRequest::new("loop"));
+
+        for _ in 0..=16 {
+            execute_pending_commands(app.world_mut());
+        }
+
+        let messages = app
+            .world()
+            .resource::<Messages<crate::ConsoleCommandExecuted>>();
+        let mut cursor = messages.get_cursor();
+        let message = cursor.read(messages).next().unwrap();
+        assert_eq!(message.input, "loop");
+        assert_eq!(message.command.as_deref(), Some("loop"));
+        assert!(!message.succeeded);
     }
 
     #[test]

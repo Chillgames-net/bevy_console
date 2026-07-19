@@ -97,6 +97,23 @@ pub(crate) fn runtime_command_completions(
     items
 }
 
+/// Builds completion items whose labels and descriptions are both static.
+///
+/// Built-in command completers use this for their fixed operation lists.
+pub(crate) fn static_completion_items(
+    request: &CompletionRequest,
+    items: impl IntoIterator<Item = (&'static str, &'static str)>,
+) -> Vec<CompletionItem> {
+    items
+        .into_iter()
+        .map(|(label, detail)| {
+            let mut item = CompletionItem::new(label, request.parsed.replacement_range());
+            item.detail = detail.into();
+            item
+        })
+        .collect()
+}
+
 fn argument_completions(
     world: &mut World,
     parsed: &ParsedInput,

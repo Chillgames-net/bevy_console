@@ -47,11 +47,14 @@
 mod args;
 mod commands;
 mod completion;
+mod editor;
+mod execution;
 mod input;
 mod logging;
 mod model;
 mod parser;
 mod registry;
+mod scroll;
 mod state;
 mod ui;
 
@@ -105,13 +108,16 @@ pub const UBUNTU_MONO_FONT_HANDLE: Handle<Font> =
     uuid_handle!("7fca4e91-3b58-d20a-9c63-e0174f2b85d6");
 
 use completion::{has_dirty_completion, refresh_completions};
+use execution::{
+    collect_console_lines, execute_pending_commands, has_pending_command, queue_console_requests,
+};
 use input::{
-    capture_console_input, collect_console_lines, console_open, console_open_and_changed,
-    execute_pending_commands, handle_toggle_key, has_pending_command, queue_bound_commands,
-    queue_console_requests, scroll_console, sync_console_input, sync_console_ui,
+    capture_console_input, console_open, handle_toggle_key, queue_bound_commands,
+    sync_console_input,
 };
 use logging::drain_captured_logs;
-use ui::{ConsoleAssets, update_console_ui};
+use scroll::scroll_console;
+use ui::{ConsoleAssets, console_open_and_changed, sync_console_ui, update_console_ui};
 
 // ── Command type ───────────────────────────────────────────────────────────────
 
