@@ -550,21 +550,6 @@ mod tests {
         assert_eq!(state.command_history_revision, 8);
     }
 
-    #[cfg(not(feature = "resource-properties"))]
-    #[test]
-    fn commands_plugin_does_not_register_property_commands_without_feature() {
-        let mut app = App::new();
-        app.insert_resource(ConsoleConfig::default())
-            .insert_resource(BuiltinCommands::default())
-            .add_plugins(plugin);
-
-        let registry = app.world().resource::<ConsoleRegistry>();
-        assert!(registry.get("get").is_none());
-        assert!(registry.get("res").is_none());
-        assert!(registry.get("set").is_none());
-        assert!(registry.get("toggle").is_none());
-    }
-
     #[test]
     fn bind_operations_manage_runtime_key_bindings() {
         let mut app = App::new();

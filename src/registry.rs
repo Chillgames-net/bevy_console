@@ -6,7 +6,6 @@ use std::collections::{BTreeMap, BTreeSet};
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum CommandExecutor {
     Structured(SystemId<In<Args>, ConsoleResult>),
-    #[cfg(feature = "resource-properties")]
     Exclusive(fn(&mut World, Args) -> ConsoleResult),
 }
 
@@ -36,7 +35,6 @@ impl ConsoleRegistry {
         self.insert_with_completer(spec, CommandExecutor::Structured(system_id), completer);
     }
 
-    #[cfg(feature = "resource-properties")]
     pub(crate) fn register_exclusive_spec_with_completer(
         &mut self,
         spec: CommandSpec,

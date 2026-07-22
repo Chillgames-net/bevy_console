@@ -1,31 +1,31 @@
 //! Expose selected fields on a Bevy resource in the developer console.
 //!
 //! Try:
-//!   res get render.wireframes
-//!   res set render.max_fps 144
-//!   res add render.max_fps 24
-//!   res sub render.max_fps 30
-//!   res toggle render.wireframes
-//!   res set render.build_label release    # rejected: read-only
+//!   res get RenderSettings.wireframes
+//!   res set RenderSettings.max_fps 144
+//!   res add RenderSettings.max_fps 24
+//!   res sub RenderSettings.max_fps 30
+//!   res toggle RenderSettings.wireframes
+//!   res set RenderSettings.build_label release    # rejected: read-only
 //!
-//! Run with:
-//!   cargo run --example resource_properties --features resource-properties
+//! Run with: `cargo run --example resource_properties`
 
 use bevy::prelude::*;
 use chill_bevy_console::{
-    BuiltinCommand, ChillConsole, ConsoleAppExt, ConsoleLineMessage, ConsoleResource,
+    BuiltinCommand, ChillConsole, ConsoleAppExt, ConsoleLineMessage, ConsoleProperty,
 };
 
-#[derive(Resource, ConsoleResource, Debug)]
-#[console_resource(prefix = "render")]
+#[derive(Resource, Reflect, Debug)]
+#[reflect(Resource)]
 struct RenderSettings {
-    #[console(help = "Draw scene wireframes")]
+    /// Draw scene wireframes
     wireframes: bool,
 
-    #[console(help = "Maximum render frame rate")]
+    /// Maximum render frame rate
     max_fps: u32,
 
-    #[console(readonly, help = "Build identifier")]
+    /// Build identifier
+    #[reflect(@ConsoleProperty::readonly())]
     build_label: String,
 }
 

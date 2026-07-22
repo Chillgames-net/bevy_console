@@ -127,7 +127,6 @@ pub(crate) fn execute_pending_commands(world: &mut World) {
             Ok(output) => output.lines,
             Err(error) => vec![(ConsoleLevel::Error, format!("System error: {error}"))],
         },
-        #[cfg(feature = "resource-properties")]
         CommandExecutor::Exclusive(command) => command(world, args).lines,
     };
     let succeeded = !result

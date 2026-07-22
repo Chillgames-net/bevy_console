@@ -5,15 +5,15 @@
 //!   map <Tab>
 //!   map "test chamber"
 //!   map missing
-//!   res set debug.draw_colliders true
-//!   res get debug.draw_colliders
+//!   res set DebugSettings.draw_colliders true
+//!   res get DebugSettings.draw_colliders
 //!
-//! Run with: `cargo run --example advanced --features resource-properties`
+//! Run with: `cargo run --example advanced`
 
 use bevy::prelude::*;
 use chill_bevy_console::{
     ArgumentSpec, BuiltinCommand, ChillConsole, CommandArgs, CompletionItem, ConsoleAppExt,
-    ConsoleCommand, ConsoleCompletionRequest, ConsoleLevel, ConsoleResource, ConsoleResult,
+    ConsoleCommand, ConsoleCompletionRequest, ConsoleLevel, ConsoleResult,
 };
 
 #[derive(Resource)]
@@ -25,10 +25,10 @@ struct MapInfo {
     experimental: bool,
 }
 
-#[derive(Resource, ConsoleResource)]
-#[console_resource(prefix = "debug")]
+#[derive(Resource, Reflect)]
+#[reflect(Resource)]
 struct DebugSettings {
-    #[console(help = "Draw collider shapes")]
+    /// Draw collider shapes
     draw_colliders: bool,
 }
 

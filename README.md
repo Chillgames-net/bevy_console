@@ -12,6 +12,7 @@ Press `` ` `` (backtick) to toggle the console open and closed.
 
 | `chill_bevy_console` | `bevy` |
 |---------------------------|--------|
+| `0.4`                     | `0.19` |
 | `0.3`                     | `0.19` |
 | `0.2`                     | `0.19` |
 | `0.1`                     | `0.18` |
@@ -20,7 +21,7 @@ Press `` ` `` (backtick) to toggle the console open and closed.
 
 ```toml
 [dependencies]
-chill_bevy_console = "0.3"
+chill_bevy_console = "0.4"
 ```
 
 Optional features:
@@ -28,8 +29,6 @@ Optional features:
 - `embedded-font` — compile in and use the bundled Ubuntu Mono font.
 - `persistent-history` — save and restore a plain-text console input/output
   transcript between runs.
-- `resource-properties` — expose selected fields on Bevy resources through
-  `res` with `#[derive(ConsoleResource)]`.
 
 ## Usage
 
@@ -63,15 +62,20 @@ Import `ConsoleAppExt` to add these methods to Bevy's `App`. Each returns
 | Method | Purpose |
 |--------|---------|
 | `add_console_command(command)` | Register a `ConsoleCommand` with aliases, argument metadata, structured help, and optional dynamic completion. |
-| `add_console_resource::<R>()` | Register `R`'s `ConsoleResource` properties for the built-in `res` command. Requires the `resource-properties` feature. |
+| `add_console_resource::<R>()` | Register `R`'s supported reflected fields for the built-in `res` command. |
+| `register_console_property_value::<T>()` | Register an application-specific reflected field type for the `res` command. |
+| `add_console_state::<S>()` | Register a reflected Bevy state for the built-in `state` command. |
 
 See [USAGE.md](USAGE.md) for adding commands, custom config, persisting history, blocking gameplay input, and built-in commands. Runnable examples live in [`examples/`](examples) — try `cargo run --example basic`.
 
 For resource-backed properties, rich command metadata, and a dynamic argument
-completer, run `cargo run --example advanced --features resource-properties`.
+completer, run `cargo run --example advanced`.
 
 For output written by ordinary game systems, run
 `cargo run --example system_output`.
+
+For reflected Bevy state inspection and transitions, run
+`cargo run --example states`.
 
 Commands stay simple by default. When a command needs richer help or argument
 completion, use a `ConsoleCommand` builder:
