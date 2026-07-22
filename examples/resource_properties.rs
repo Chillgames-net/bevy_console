@@ -8,24 +8,24 @@
 //!   res toggle render.wireframes
 //!   res set render.build_label release    # rejected: read-only
 //!
-//! Run with:
-//!   cargo run --example resource_properties --features resource-properties
+//! Run with: `cargo run --example resource_properties`
 
 use bevy::prelude::*;
 use chill_bevy_console::{
-    BuiltinCommand, ChillConsole, ConsoleAppExt, ConsoleLineMessage, ConsoleResource,
+    BuiltinCommand, ChillConsole, ConsoleAppExt, ConsoleLineMessage, ConsoleProperty,
 };
 
-#[derive(Resource, ConsoleResource, Debug)]
-#[console_resource(prefix = "render")]
+#[derive(Resource, Reflect, Debug)]
+#[reflect(Resource)]
 struct RenderSettings {
-    #[console(help = "Draw scene wireframes")]
+    /// Draw scene wireframes
     wireframes: bool,
 
-    #[console(help = "Maximum render frame rate")]
+    /// Maximum render frame rate
     max_fps: u32,
 
-    #[console(readonly, help = "Build identifier")]
+    /// Build identifier
+    #[reflect(@ConsoleProperty::readonly())]
     build_label: String,
 }
 
@@ -38,7 +38,7 @@ fn main() {
             max_fps: 60,
             build_label: "development".into(),
         })
-        .add_console_resource::<RenderSettings>()
+        .add_console_resource::<RenderSettings>("render")
         .add_systems(Startup, setup)
         .add_systems(Update, apply_render_settings)
         .run();

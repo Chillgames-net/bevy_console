@@ -12,7 +12,7 @@ pub enum BuiltinCommand {
     Help,
     Alias,
     Bind,
-    #[cfg(feature = "resource-properties")]
+    State,
     Res,
 }
 
@@ -57,15 +57,15 @@ impl std::ops::Deref for BuiltinCommands {
 
 impl BuiltinCommand {
     /// Returns every built-in command.
-    #[cfg(feature = "resource-properties")]
-    pub const fn all() -> [Self; 5] {
-        [Self::Clear, Self::Help, Self::Alias, Self::Bind, Self::Res]
-    }
-
-    /// Returns every built-in command.
-    #[cfg(not(feature = "resource-properties"))]
-    pub const fn all() -> [Self; 4] {
-        [Self::Clear, Self::Help, Self::Alias, Self::Bind]
+    pub const fn all() -> [Self; 6] {
+        [
+            Self::Clear,
+            Self::Help,
+            Self::Alias,
+            Self::Bind,
+            Self::State,
+            Self::Res,
+        ]
     }
 }
 

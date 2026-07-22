@@ -1,86 +1,97 @@
-//! Opt-in resource-backed console properties.
-//!
-//! This module is enabled by the `resource-properties` feature. The
-//! [`ConsoleResource`] derive generates the typed accessors; this module keeps
-//! their runtime registry and all console command integration in one place.
+//! Opt-in console access to reflected Bevy resource fields.
 
 use crate::model::CommandSpec;
 use crate::{
     Args, ArgumentSpec, BuiltinCommand, CompletionItem, CompletionRequest,
     ConsoleCompletionRequest, ConsoleRegistry, ConsoleResult, completion::static_completion_items,
 };
+use bevy::ecs::{component::ComponentId, reflect::AppTypeRegistry};
 use bevy::prelude::*;
-use std::collections::BTreeMap;
+use bevy::reflect::{
+    FromType, GetTypeRegistration, PartialReflect, ReflectMut, ReflectRef, TypeInfo, TypePath,
+    Typed,
+};
+use std::{any::TypeId, collections::BTreeMap};
 
-type Getter = fn(&World) -> Result<String, String>;
-type Setter = fn(&mut World, &str) -> Result<String, String>;
-type Adjuster = fn(&mut World, &str, bool) -> Result<String, String>;
-
-/// Generated metadata and accessors for one field exposed by a
-/// [`ConsoleResource`].
-#[derive(Clone, Copy)]
+/// Optional console metadata for a reflected resource field.
+///
+/// Fields with a registered [`ConsolePropertyValue`] adapter are exposed by
+/// default. Attach this through Bevy's custom reflection attributes only when
+/// a field needs an override:
+///
+/// ```
+/// # use bevy::prelude::*;
+/// # use chill_bevy_console::ConsoleProperty;
+/// #[derive(Resource, Reflect)]
+/// #[reflect(Resource)]
+/// struct Settings {
+///     #[reflect(@ConsoleProperty::readonly())]
+///     build_label: String,
+/// }
+/// ```
+#[derive(Clone, Default, Reflect)]
+#[reflect(opaque)]
 pub struct ConsoleProperty {
-    name: &'static str,
-    help: &'static str,
-    getter: Getter,
-    setter: Option<Setter>,
-    adjuster: Option<Adjuster>,
-    is_boolean: bool,
-    is_numeric: bool,
+    name: Option<String>,
+    help: Option<String>,
+    readonly: bool,
 }
 
 impl ConsoleProperty {
-    #[doc(hidden)]
-    pub const fn new(
-        name: &'static str,
-        help: &'static str,
-        getter: Getter,
-        setter: Option<Setter>,
-        adjuster: Option<Adjuster>,
-        is_boolean: bool,
-        is_numeric: bool,
-    ) -> Self {
+    /// Creates field metadata without any overrides.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Creates metadata that prevents the field from being changed through the console.
+    pub fn readonly() -> Self {
         Self {
-            name,
-            help,
-            getter,
-            setter,
-            adjuster,
-            is_boolean,
-            is_numeric,
+            readonly: true,
+            ..default()
         }
+    }
+
+    /// Overrides the field's segment of its console property name.
+    pub fn with_name(mut self, name: impl Into<String>) -> Self {
+        self.name = Some(name.into());
+        self
+    }
+
+    /// Overrides the help inferred from the field's documentation comment.
+    pub fn with_help(mut self, help: impl Into<String>) -> Self {
+        self.help = Some(help.into());
+        self
+    }
+
+    /// Makes this field read-only.
+    pub fn with_readonly(mut self) -> Self {
+        self.readonly = true;
+        self
     }
 }
 
-/// A Bevy resource that exposes selected fields through the console.
-///
-/// Implement this with `#[derive(ConsoleResource)]`; the resource must also
-/// implement Bevy's [`Resource`].
-pub trait ConsoleResource: Resource {
-    #[doc(hidden)]
-    fn console_properties() -> &'static [ConsoleProperty];
-}
-
-/// A field type that can be read from and written from the console.
+/// A reflected field type that can be read from and written through the console.
 ///
 /// The built-in implementations cover booleans, all primitive integer and
-/// float types, and [`String`]. Implement this trait for application-specific
-/// field types to make them available to `#[derive(ConsoleResource)]`.
-pub trait ConsolePropertyValue: 'static {
+/// float types, and [`String`]. For an application-specific reflected type,
+/// implement this trait and call
+/// [`ConsoleAppExt::register_console_property_value`](crate::ConsoleAppExt::register_console_property_value)
+/// before registering a resource that contains it.
+pub trait ConsolePropertyValue: Reflect + TypePath {
     #[doc(hidden)]
     const IS_BOOLEAN: bool = false;
     #[doc(hidden)]
     const IS_NUMERIC: bool = false;
 
-    #[doc(hidden)]
+    /// Parses a value entered through the console.
     fn parse_console_value(input: &str) -> Result<Self, String>
     where
         Self: Sized;
 
-    #[doc(hidden)]
+    /// Formats the value for console output.
     fn format_console_value(&self) -> String;
 
-    #[doc(hidden)]
+    /// Returns this value adjusted by the supplied amount.
     fn adjusted_console_value(&self, _amount: &str, _subtract: bool) -> Result<Self, String>
     where
         Self: Sized,
@@ -181,38 +192,102 @@ impl ConsolePropertyValue for String {
     }
 }
 
-/// Runtime registry for fields exposed by registered [`ConsoleResource`] types.
+type ParseValue = fn(&str) -> Result<Box<dyn Reflect>, String>;
+type FormatValue = fn(&dyn PartialReflect) -> Result<String, String>;
+type AdjustValue = fn(&dyn PartialReflect, &str, bool) -> Result<Box<dyn Reflect>, String>;
+type ReplaceValue = fn(&mut dyn PartialReflect, Box<dyn Reflect>) -> Result<String, String>;
+
+/// Reflection type data that adapts a [`ConsolePropertyValue`] for dynamic access.
+#[derive(Clone)]
+struct ReflectConsolePropertyValue {
+    parse: ParseValue,
+    format: FormatValue,
+    adjust: AdjustValue,
+    replace: ReplaceValue,
+    is_boolean: bool,
+    is_numeric: bool,
+}
+
+impl<T: ConsolePropertyValue> FromType<T> for ReflectConsolePropertyValue {
+    fn from_type() -> Self {
+        Self {
+            parse: |input| Ok(Box::new(T::parse_console_value(input)?)),
+            format: |value| {
+                value
+                    .try_downcast_ref::<T>()
+                    .map(ConsolePropertyValue::format_console_value)
+                    .ok_or_else(|| "reflected property type does not match its adapter".into())
+            },
+            adjust: |value, amount, subtract| {
+                let value = value.try_downcast_ref::<T>().ok_or_else(|| {
+                    "reflected property type does not match its adapter".to_string()
+                })?;
+                Ok(Box::new(value.adjusted_console_value(amount, subtract)?))
+            },
+            replace: |field, value| {
+                let field = field.try_downcast_mut::<T>().ok_or_else(|| {
+                    "reflected property type does not match its adapter".to_string()
+                })?;
+                let value = value
+                    .take::<T>()
+                    .map_err(|_| "parsed property type does not match its adapter".to_string())?;
+                *field = value;
+                Ok(field.format_console_value())
+            },
+            is_boolean: T::IS_BOOLEAN,
+            is_numeric: T::IS_NUMERIC,
+        }
+    }
+}
+
+#[derive(Clone)]
+struct RegisteredConsoleProperty {
+    name: String,
+    help: String,
+    resource_type_id: TypeId,
+    resource_component_id: ComponentId,
+    resource_type_path: &'static str,
+    field_name: &'static str,
+    value: ReflectConsolePropertyValue,
+    readonly: bool,
+}
+
+/// Runtime registry for reflected fields exposed through the console.
 #[derive(Resource, Default)]
 pub(crate) struct ConsoleResources {
-    properties: BTreeMap<String, ConsoleProperty>,
+    properties: BTreeMap<String, RegisteredConsoleProperty>,
 }
 
 impl ConsoleResources {
-    fn register<R: ConsoleResource>(&mut self) {
-        for property in R::console_properties() {
-            let name = property.name.to_ascii_lowercase();
-            assert!(!name.is_empty(), "console property names cannot be empty");
+    fn register(&mut self, properties: Vec<RegisteredConsoleProperty>) {
+        assert!(
+            !properties.is_empty(),
+            "a console resource must contain at least one supported reflected field"
+        );
+        for property in properties {
+            let key = property.name.to_ascii_lowercase();
+            assert!(!key.is_empty(), "console property names cannot be empty");
             assert!(
-                !self.properties.contains_key(&name),
+                !self.properties.contains_key(&key),
                 "console property `{}` is already registered",
                 property.name
             );
-            self.properties.insert(name, *property);
+            self.properties.insert(key, property);
         }
     }
 
-    fn get(&self, name: &str) -> Option<ConsoleProperty> {
-        self.properties.get(&name.to_ascii_lowercase()).copied()
+    fn get(&self, name: &str) -> Option<RegisteredConsoleProperty> {
+        self.properties.get(&name.to_ascii_lowercase()).cloned()
     }
 
-    fn iter(&self) -> impl Iterator<Item = (&str, ConsoleProperty)> {
+    fn iter(&self) -> impl Iterator<Item = (&str, &RegisteredConsoleProperty)> {
         self.properties
             .iter()
-            .map(|(name, property)| (name.as_str(), *property))
+            .map(|(name, property)| (name.as_str(), property))
     }
 }
 
-/// Registers the resource-property built-in commands and completion providers.
+/// Registers the resource-property built-in command and completion provider.
 pub(crate) fn plugin(app: &mut App) {
     let enabled = app.world().resource::<crate::BuiltinCommands>().clone();
     app.init_resource::<ConsoleResources>();
@@ -239,32 +314,182 @@ pub(crate) fn plugin(app: &mut App) {
     }
 }
 
-pub(crate) fn register_resource<R: ConsoleResource>(app: &mut App) {
+pub(crate) fn register_property_value<T>(app: &mut App)
+where
+    T: ConsolePropertyValue + GetTypeRegistration,
+{
+    app.register_type::<T>()
+        .register_type_data::<T, ReflectConsolePropertyValue>();
+}
+
+fn register_builtin_property_values(app: &mut App) {
+    macro_rules! register {
+        ($($type:ty),* $(,)?) => {
+            $(register_property_value::<$type>(app);)*
+        };
+    }
+    register!(
+        bool, i8, i16, i32, i64, i128, isize, u8, u16, u32, u64, u128, usize, f32, f64, String,
+    );
+}
+
+pub(crate) fn register_resource<R>(app: &mut App, prefix: impl Into<String>)
+where
+    R: Resource + Reflect + FromReflect + GetTypeRegistration + Typed,
+{
+    app.register_type::<R>();
+    register_builtin_property_values(app);
+    let resource_component_id = app.world_mut().register_component::<R>();
+    let prefix = prefix.into();
+
+    let properties = {
+        let registry = app.world().resource::<AppTypeRegistry>().read();
+        let registration = registry
+            .get(TypeId::of::<R>())
+            .expect("the console resource type was just registered");
+        assert!(
+            registration
+                .data::<bevy::ecs::reflect::ReflectResource>()
+                .is_some(),
+            "console resource `{}` must derive Reflect with #[reflect(Resource)]",
+            R::type_path()
+        );
+        let TypeInfo::Struct(info) = R::type_info() else {
+            panic!(
+                "console resource `{}` must reflect as a struct with named fields",
+                R::type_path()
+            );
+        };
+
+        info.iter()
+            .filter_map(|field| {
+                let value = registry
+                    .get_type_data::<ReflectConsolePropertyValue>(field.type_id())?
+                    .clone();
+                let options = field.get_attribute::<ConsoleProperty>();
+                let field_name = options
+                    .and_then(|options| options.name.as_deref())
+                    .unwrap_or_else(|| field.name());
+                assert!(
+                    !field_name.is_empty(),
+                    "console property field names cannot be empty"
+                );
+                let name = if prefix.is_empty() {
+                    field_name.to_owned()
+                } else {
+                    format!("{prefix}.{field_name}")
+                };
+                let help = options
+                    .and_then(|options| options.help.clone())
+                    .or_else(|| field.docs().map(str::trim).map(str::to_owned))
+                    .unwrap_or_default();
+                Some(RegisteredConsoleProperty {
+                    name,
+                    help,
+                    resource_type_id: TypeId::of::<R>(),
+                    resource_component_id,
+                    resource_type_path: R::type_path(),
+                    field_name: field.name(),
+                    value,
+                    readonly: options.is_some_and(|options| options.readonly),
+                })
+            })
+            .collect::<Vec<_>>()
+    };
+
     app.init_resource::<ConsoleResources>();
     app.world_mut()
         .resource_mut::<ConsoleResources>()
-        .register::<R>();
+        .register(properties);
 }
 
-fn property(world: &World, name: &str) -> Result<ConsoleProperty, String> {
+fn property(world: &World, name: &str) -> Result<RegisteredConsoleProperty, String> {
     world
         .get_resource::<ConsoleResources>()
         .and_then(|properties| properties.get(name))
         .ok_or_else(|| format!("Unknown property: {name}"))
 }
 
+fn reflected_field<'w>(
+    world: &'w World,
+    property: &RegisteredConsoleProperty,
+) -> Result<&'w dyn PartialReflect, String> {
+    let entity = world
+        .resource_entities()
+        .get(property.resource_component_id)
+        .ok_or_else(|| format!("Resource `{}` is not inserted", property.resource_type_path))?;
+    let resource = world
+        .get_reflect(entity, property.resource_type_id)
+        .map_err(|error| {
+            format!(
+                "Unable to reflect `{}`: {error}",
+                property.resource_type_path
+            )
+        })?;
+    let ReflectRef::Struct(resource) = resource.reflect_ref() else {
+        return Err(format!(
+            "Resource `{}` no longer reflects as a struct",
+            property.resource_type_path
+        ));
+    };
+    resource.field(property.field_name).ok_or_else(|| {
+        format!(
+            "Resource `{}` has no reflected field `{}`",
+            property.resource_type_path, property.field_name
+        )
+    })
+}
+
+fn replace_value(
+    world: &mut World,
+    property: &RegisteredConsoleProperty,
+    value: Box<dyn Reflect>,
+) -> Result<String, String> {
+    let entity = world
+        .resource_entities()
+        .get(property.resource_component_id)
+        .ok_or_else(|| format!("Resource `{}` is not inserted", property.resource_type_path))?;
+    let mut resource = world
+        .get_reflect_mut(entity, property.resource_type_id)
+        .map_err(|error| {
+            format!(
+                "Unable to reflect `{}`: {error}",
+                property.resource_type_path
+            )
+        })?;
+    let result = {
+        let ReflectMut::Struct(resource) = resource.bypass_change_detection().reflect_mut() else {
+            return Err(format!(
+                "Resource `{}` no longer reflects as a struct",
+                property.resource_type_path
+            ));
+        };
+        let field = resource.field_mut(property.field_name).ok_or_else(|| {
+            format!(
+                "Resource `{}` has no reflected field `{}`",
+                property.resource_type_path, property.field_name
+            )
+        })?;
+        (property.value.replace)(field, value)
+    };
+    if result.is_ok() {
+        resource.set_changed();
+    }
+    result
+}
+
 fn get_value(world: &World, name: &str) -> Result<String, String> {
     let property = property(world, name)?;
-    (property.getter)(world)
+    (property.value.format)(reflected_field(world, &property)?)
 }
 
 fn set_value(world: &mut World, name: &str, input: &str) -> Result<String, String> {
     let property = property(world, name)?;
-    let setter = property
-        .setter
-        .ok_or_else(|| format!("{name} is read-only"))?;
-    let value = setter(world, input)?;
-    Ok(value)
+    if property.readonly {
+        return Err(format!("{name} is read-only"));
+    }
+    let value = (property.value.parse)(input)?;
+    replace_value(world, &property, value)
 }
 
 fn adjust_value(
@@ -274,13 +499,14 @@ fn adjust_value(
     subtract: bool,
 ) -> Result<String, String> {
     let property = property(world, name)?;
-    if !property.is_numeric {
+    if !property.value.is_numeric {
         return Err(format!("{name} is not a numeric property"));
     }
-    let adjuster = property
-        .adjuster
-        .ok_or_else(|| format!("{name} is read-only"))?;
-    adjuster(world, amount, subtract)
+    if property.readonly {
+        return Err(format!("{name} is read-only"));
+    }
+    let value = (property.value.adjust)(reflected_field(world, &property)?, amount, subtract)?;
+    replace_value(world, &property, value)
 }
 
 fn show_property(world: &mut World, name: &str) -> ConsoleResult {
@@ -333,10 +559,16 @@ fn toggle_property(world: &mut World, name: &str) -> ConsoleResult {
     let Ok(property) = property(world, name) else {
         return ConsoleResult::error(format!("Unknown property: {name}"));
     };
-    if !property.is_boolean {
+    if !property.value.is_boolean {
         return ConsoleResult::error(format!("{name} is not a boolean property"));
     }
-    let Ok(value) = (property.getter)(world) else {
+    if property.readonly {
+        return ConsoleResult::error(format!("{name} is read-only"));
+    }
+    let Ok(field) = reflected_field(world, &property) else {
+        return ConsoleResult::error(format!("Unable to read property: {name}"));
+    };
+    let Ok(value) = (property.value.format)(field) else {
         return ConsoleResult::error(format!("Unable to read property: {name}"));
     };
     let next = match value.to_ascii_lowercase().as_str() {
@@ -368,8 +600,9 @@ fn complete_res_property_names(
 ) -> Vec<CompletionItem> {
     let operation = request.argument(0);
     property_items(properties, |property| match operation {
-        Some("toggle") => property.is_boolean,
-        Some("add" | "sub") => property.is_numeric,
+        Some("toggle") => property.value.is_boolean && !property.readonly,
+        Some("add" | "sub") => property.value.is_numeric && !property.readonly,
+        Some("set") => !property.readonly,
         _ => true,
     })
 }
@@ -397,7 +630,7 @@ fn complete_res_property_values(
     let Some(property) = properties.get(name) else {
         return Vec::new();
     };
-    if !property.is_boolean {
+    if !property.value.is_boolean || property.readonly {
         return Vec::new();
     }
     ["true", "false"]
@@ -408,18 +641,18 @@ fn complete_res_property_values(
 
 fn property_items(
     properties: &ConsoleResources,
-    predicate: impl Fn(ConsoleProperty) -> bool,
+    predicate: impl Fn(&RegisteredConsoleProperty) -> bool,
 ) -> Vec<CompletionItem> {
     properties
         .iter()
-        .filter(|(_, property)| predicate(*property))
+        .filter(|(_, property)| predicate(property))
         .map(|(name, property)| {
             CompletionItem::new(
                 name,
                 if property.help.is_empty() {
                     "resource property"
                 } else {
-                    property.help
+                    &property.help
                 },
             )
         })
@@ -434,15 +667,37 @@ mod tests {
         ConsoleRegistry, ConsoleRequest, ConsoleState,
     };
 
-    #[derive(Resource, super::super::ConsoleResource)]
-    #[console_resource(prefix = "debug")]
+    #[derive(Resource, Reflect)]
+    #[reflect(Resource)]
     struct DebugSettings {
-        #[console(help = "Draw collider shapes")]
+        /// Draw collider shapes
         draw_colliders: bool,
-        #[console(readonly)]
+        #[reflect(@ConsoleProperty::readonly())]
         label: String,
-        #[console()]
         max_fps: u32,
+        ignored_unsupported_type: Vec<String>,
+    }
+
+    #[derive(Reflect)]
+    struct CustomValue(u32);
+
+    impl ConsolePropertyValue for CustomValue {
+        fn parse_console_value(input: &str) -> Result<Self, String> {
+            input
+                .parse()
+                .map(Self)
+                .map_err(|_| "expected a custom value".into())
+        }
+
+        fn format_console_value(&self) -> String {
+            self.0.to_string()
+        }
+    }
+
+    #[derive(Resource, Reflect)]
+    #[reflect(Resource)]
+    struct CustomSettings {
+        value: CustomValue,
     }
 
     #[test]
@@ -458,7 +713,7 @@ mod tests {
     }
 
     #[test]
-    fn properties_mutate_the_registered_resource() {
+    fn reflected_properties_mutate_the_registered_resource() {
         let mut app = App::new();
         app.insert_resource(crate::BuiltinCommands::from([BuiltinCommand::Res]))
             .insert_resource(ConsoleState::default())
@@ -472,13 +727,20 @@ mod tests {
                 draw_colliders: false,
                 label: "development".into(),
                 max_fps: 60,
+                ignored_unsupported_type: Vec::new(),
             })
-            .add_console_resource::<DebugSettings>();
+            .add_console_resource::<DebugSettings>("debug");
         let registry = app.world().resource::<ConsoleRegistry>();
         assert!(registry.get("get").is_none());
         assert!(registry.get("res").is_some());
         assert!(registry.get("set").is_none());
         assert!(registry.get("toggle").is_none());
+        assert!(
+            app.world()
+                .resource::<ConsoleResources>()
+                .get("debug.ignored_unsupported_type")
+                .is_none()
+        );
 
         app.world_mut()
             .resource_mut::<ConsoleCommandQueue>()
@@ -498,6 +760,12 @@ mod tests {
             .push(ConsoleRequest::new("res set debug.draw_colliders true"));
         crate::execution::execute_pending_commands(app.world_mut());
         assert!(app.world().resource::<DebugSettings>().draw_colliders);
+
+        app.world_mut()
+            .resource_mut::<ConsoleCommandQueue>()
+            .push(ConsoleRequest::new("res set debug.label production"));
+        crate::execution::execute_pending_commands(app.world_mut());
+        assert_eq!(app.world().resource::<DebugSettings>().label, "development");
 
         app.world_mut()
             .resource_mut::<ConsoleCommandQueue>()
@@ -545,5 +813,22 @@ mod tests {
             .push(ConsoleRequest::new("res toggle debug.draw_colliders"));
         crate::execution::execute_pending_commands(app.world_mut());
         assert!(!app.world().resource::<DebugSettings>().draw_colliders);
+    }
+
+    #[test]
+    fn application_specific_property_values_can_be_registered() {
+        let mut app = App::new();
+        app.register_console_property_value::<CustomValue>()
+            .add_console_resource::<CustomSettings>("custom")
+            .insert_resource(CustomSettings {
+                value: CustomValue(3),
+            });
+
+        assert_eq!(get_value(app.world(), "custom.value").unwrap(), "3");
+        assert_eq!(
+            set_value(app.world_mut(), "custom.value", "7").unwrap(),
+            "7"
+        );
+        assert_eq!(app.world().resource::<CustomSettings>().value.0, 7);
     }
 }

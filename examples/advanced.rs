@@ -8,12 +8,12 @@
 //!   res set debug.draw_colliders true
 //!   res get debug.draw_colliders
 //!
-//! Run with: `cargo run --example advanced --features resource-properties`
+//! Run with: `cargo run --example advanced`
 
 use bevy::prelude::*;
 use chill_bevy_console::{
     ArgumentSpec, BuiltinCommand, ChillConsole, CommandArgs, CompletionItem, ConsoleAppExt,
-    ConsoleCommand, ConsoleCompletionRequest, ConsoleLevel, ConsoleResource, ConsoleResult,
+    ConsoleCommand, ConsoleCompletionRequest, ConsoleLevel, ConsoleResult,
 };
 
 #[derive(Resource)]
@@ -25,10 +25,10 @@ struct MapInfo {
     experimental: bool,
 }
 
-#[derive(Resource, ConsoleResource)]
-#[console_resource(prefix = "debug")]
+#[derive(Resource, Reflect)]
+#[reflect(Resource)]
 struct DebugSettings {
-    #[console(help = "Draw collider shapes")]
+    /// Draw collider shapes
     draw_colliders: bool,
 }
 
@@ -56,7 +56,7 @@ fn main() {
             draw_colliders: false,
         })
         .add_plugins(ChillConsole::default().with_builtin_commands([BuiltinCommand::Res]))
-        .add_console_resource::<DebugSettings>()
+        .add_console_resource::<DebugSettings>("debug")
         .add_console_command(
             ConsoleCommand::new("map", "map <name> - load a map", load_map)
                 .with_summary("Load a map by name")

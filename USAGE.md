@@ -100,27 +100,24 @@ completion to accept it; swipe up with two fingers to dismiss the console.
 
 ## Resource properties
 
-Enable the opt-in `resource-properties` feature to expose selected fields on a
-Bevy `Resource` directly through the `res` command:
-
-```toml
-chill_bevy_console = { version = "0.3", features = ["resource-properties"] }
-```
+Register a reflected Bevy `Resource` to expose its supported fields directly
+through the `res` command:
 
 ```rust
 use bevy::prelude::*;
-use chill_bevy_console::{ConsoleAppExt, ConsoleResource};
+use chill_bevy_console::{ConsoleAppExt, ConsoleProperty};
 
-#[derive(Resource, ConsoleResource)]
-#[console_resource(prefix = "debug")]
+#[derive(Resource, Reflect)]
+#[reflect(Resource)]
 struct DebugSettings {
-    #[console(help = "Draw collider shapes")]
+    /// Draw collider shapes
     draw_colliders: bool,
 
-    #[console(readonly)]
+    /// Build identifier
+    #[reflect(@ConsoleProperty::readonly())]
     build_label: String,
 
-    #[console(help = "Maximum frame rate")]
+    /// Maximum frame rate
     max_fps: u32,
 }
 
@@ -129,24 +126,27 @@ app.insert_resource(DebugSettings {
     build_label: "development".into(),
     max_fps: 60,
 })
-.add_console_resource::<DebugSettings>();
+.add_console_resource::<DebugSettings>("debug");
 ```
 
 This creates `debug.draw_colliders`, `debug.build_label`, and `debug.max_fps`.
 `res set debug.draw_colliders true` mutates `DebugSettings` itself, so ordinary
-Bevy change detection observes it. `readonly` omits the setter.
+Bevy change detection observes it. `readonly` rejects mutating operations.
 
 `res` groups resource operations: `res get <name>`, `res set <name> <value>`,
 `res add <name> <amount>`, `res sub <name> <amount>`, and `res toggle <name>`.
 `add` and `sub` work with numeric properties; integer overflow is reported as a
 console error.
 
-Fields must be explicitly marked with `#[console]`. Built-in property values
-support booleans, all primitive integers and floats, and `String`; implement
-`ConsolePropertyValue` for an application-specific type.
+All reflected fields with a registered value adapter are exposed automatically.
+Field documentation comments provide completion and `res get` help. Use a
+reflected `ConsoleProperty` attribute only for read-only, name, or help
+overrides. Built-in adapters support booleans, all primitive integers and
+floats, and `String`.
 
-The derive macro currently expects the dependencies to be available as
-`chill_bevy_console` and `bevy`; renamed dependencies are not supported.
+For an application-specific reflected field type, implement
+`ConsolePropertyValue` and call
+`register_console_property_value::<T>()` before `add_console_resource`.
 
 ## Runtime aliases
 
@@ -280,7 +280,7 @@ font. Enable `embedded-font` to use the bundled Ubuntu Mono font instead;
 `UbuntuMono-R.ttf` is compiled into the binary and selected automatically.
 
 ```toml
-chill_bevy_console = { version = "0.3", features = ["embedded-font"] }
+chill_bevy_console = { version = "0.4", features = ["embedded-font"] }
 ```
 
 ## Persisting console transcripts between runs
@@ -290,7 +290,7 @@ transcript for Up/Down recall. The transcript restores submitted command prompts
 and console output in their original order; commands are not executed again.
 
 ```toml
-chill_bevy_console = { version = "0.3", features = ["persistent-history"] }
+chill_bevy_console = { version = "0.4", features = ["persistent-history"] }
 ```
 
 By default, console history is saved to `console_history.txt` in the current
@@ -346,7 +346,36 @@ fn lock_console_for_release(mut state: ResMut<ConsoleState>) {
 | `clear`   | Clear the console output        |
 | `alias` | Manage runtime aliases |
 | `bind` | Manage runtime key bindings |
-| `res` | Inspect and change resource properties (requires `resource-properties`) |
+| `state` | Inspect or change registered Bevy states |
+| `res` | Inspect and change registered reflected resource properties |
+
+### Reflected states
+
+The `state` command discovers states registered with Bevy reflection. Derive
+`Reflect` for each freely mutable state, then register it after initialization:
+
+```rust
+#[derive(States, Reflect, Default, Debug, Clone, PartialEq, Eq, Hash)]
+enum GameState {
+    #[default]
+    Menu,
+    Playing,
+}
+
+app.init_state::<GameState>()
+    .add_console_state::<GameState>();
+```
+
+Use the enum name and a unit enum variant. If two registered states share an
+enum name, completion uses their full reflected type paths to disambiguate:
+
+```text
+state get GameState
+state set GameState Playing
+```
+
+Type and variant completion are provided automatically. Variants with fields
+are intentionally not settable through the command.
 
 `alias` and `bind` use `list`, `get`, `set`, and `remove` operations:
 
