@@ -5,8 +5,8 @@
 //!   map <Tab>
 //!   map "test chamber"
 //!   map missing
-//!   res set debug.draw_colliders true
-//!   res get debug.draw_colliders
+//!   res set DebugSettings.draw_colliders true
+//!   res get DebugSettings.draw_colliders
 //!
 //! Run with: `cargo run --example advanced`
 
@@ -56,7 +56,7 @@ fn main() {
             draw_colliders: false,
         })
         .add_plugins(ChillConsole::default().with_builtin_commands([BuiltinCommand::Res]))
-        .add_console_resource::<DebugSettings>("debug")
+        .add_console_resource::<DebugSettings>()
         .add_console_command(
             ConsoleCommand::new("map", "map <name> - load a map", load_map)
                 .with_summary("Load a map by name")

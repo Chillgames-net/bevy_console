@@ -62,7 +62,7 @@ Import `ConsoleAppExt` to add these methods to Bevy's `App`. Each returns
 | Method | Purpose |
 |--------|---------|
 | `add_console_command(command)` | Register a `ConsoleCommand` with aliases, argument metadata, structured help, and optional dynamic completion. |
-| `add_console_resource::<R>(prefix)` | Register `R`'s supported reflected fields for the built-in `res` command. |
+| `add_console_resource::<R>()` | Register `R`'s supported reflected fields for the built-in `res` command. |
 | `register_console_property_value::<T>()` | Register an application-specific reflected field type for the `res` command. |
 | `add_console_state::<S>()` | Register a reflected Bevy state for the built-in `state` command. |
 

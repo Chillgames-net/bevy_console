@@ -243,6 +243,8 @@ impl<T: ConsolePropertyValue> FromType<T> for ReflectConsolePropertyValue {
 #[derive(Clone)]
 struct RegisteredConsoleProperty {
     name: String,
+    resource_short_type_path: &'static str,
+    console_field_name: String,
     help: String,
     resource_type_id: TypeId,
     resource_component_id: ComponentId,
@@ -264,16 +266,48 @@ impl ConsoleResources {
             !properties.is_empty(),
             "a console resource must contain at least one supported reflected field"
         );
-        for property in properties {
-            let key = property.name.to_ascii_lowercase();
-            assert!(!key.is_empty(), "console property names cannot be empty");
-            assert!(
-                !self.properties.contains_key(&key),
-                "console property `{}` is already registered",
-                property.name
-            );
-            self.properties.insert(key, property);
+        let resource_type_id = properties[0].resource_type_id;
+        let resource_type_path = properties[0].resource_type_path;
+        let resource_short_type_path = properties[0].resource_short_type_path;
+        assert!(
+            !self
+                .properties
+                .values()
+                .any(|property| property.resource_type_id == resource_type_id),
+            "console resource `{resource_type_path}` is already registered"
+        );
+
+        let short_path_collision = self
+            .properties
+            .values()
+            .any(|property| property.resource_short_type_path == resource_short_type_path);
+        if short_path_collision {
+            let existing = std::mem::take(&mut self.properties);
+            for mut property in existing.into_values() {
+                if property.resource_short_type_path == resource_short_type_path {
+                    property.use_full_type_path();
+                }
+                self.insert(property);
+            }
         }
+
+        for mut property in properties {
+            if short_path_collision {
+                property.use_full_type_path();
+            }
+            self.insert(property);
+        }
+    }
+
+    fn insert(&mut self, property: RegisteredConsoleProperty) {
+        let key = property.name.to_ascii_lowercase();
+        assert!(!key.is_empty(), "console property names cannot be empty");
+        assert!(
+            !self.properties.contains_key(&key),
+            "console property `{}` is already registered",
+            property.name
+        );
+        self.properties.insert(key, property);
     }
 
     fn get(&self, name: &str) -> Option<RegisteredConsoleProperty> {
@@ -284,6 +318,12 @@ impl ConsoleResources {
         self.properties
             .iter()
             .map(|(name, property)| (name.as_str(), property))
+    }
+}
+
+impl RegisteredConsoleProperty {
+    fn use_full_type_path(&mut self) {
+        self.name = format!("{}.{}", self.resource_type_path, self.console_field_name);
     }
 }
 
@@ -333,14 +373,13 @@ fn register_builtin_property_values(app: &mut App) {
     );
 }
 
-pub(crate) fn register_resource<R>(app: &mut App, prefix: impl Into<String>)
+pub(crate) fn register_resource<R>(app: &mut App)
 where
     R: Resource + Reflect + FromReflect + GetTypeRegistration + Typed,
 {
     app.register_type::<R>();
     register_builtin_property_values(app);
     let resource_component_id = app.world_mut().register_component::<R>();
-    let prefix = prefix.into();
 
     let properties = {
         let registry = app.world().resource::<AppTypeRegistry>().read();
@@ -360,6 +399,7 @@ where
                 R::type_path()
             );
         };
+        let resource_short_type_path = registration.type_info().type_path_table().short_path();
 
         info.iter()
             .filter_map(|field| {
@@ -374,17 +414,15 @@ where
                     !field_name.is_empty(),
                     "console property field names cannot be empty"
                 );
-                let name = if prefix.is_empty() {
-                    field_name.to_owned()
-                } else {
-                    format!("{prefix}.{field_name}")
-                };
+                let name = format!("{resource_short_type_path}.{field_name}");
                 let help = options
                     .and_then(|options| options.help.clone())
                     .or_else(|| field.docs().map(str::trim).map(str::to_owned))
                     .unwrap_or_default();
                 Some(RegisteredConsoleProperty {
                     name,
+                    resource_short_type_path,
+                    console_field_name: field_name.to_owned(),
                     help,
                     resource_type_id: TypeId::of::<R>(),
                     resource_component_id,
@@ -700,6 +738,26 @@ mod tests {
         value: CustomValue,
     }
 
+    mod first {
+        use bevy::prelude::*;
+
+        #[derive(Resource, Reflect)]
+        #[reflect(Resource)]
+        pub struct Settings {
+            pub value: u32,
+        }
+    }
+
+    mod second {
+        use bevy::prelude::*;
+
+        #[derive(Resource, Reflect)]
+        #[reflect(Resource)]
+        pub struct Settings {
+            pub value: u32,
+        }
+    }
+
     #[test]
     fn res_builtin_enables_property_commands() {
         let mut app = App::new();
@@ -729,7 +787,7 @@ mod tests {
                 max_fps: 60,
                 ignored_unsupported_type: Vec::new(),
             })
-            .add_console_resource::<DebugSettings>("debug");
+            .add_console_resource::<DebugSettings>();
         let registry = app.world().resource::<ConsoleRegistry>();
         assert!(registry.get("get").is_none());
         assert!(registry.get("res").is_some());
@@ -738,13 +796,13 @@ mod tests {
         assert!(
             app.world()
                 .resource::<ConsoleResources>()
-                .get("debug.ignored_unsupported_type")
+                .get("DebugSettings.ignored_unsupported_type")
                 .is_none()
         );
 
         app.world_mut()
             .resource_mut::<ConsoleCommandQueue>()
-            .push(ConsoleRequest::new("res get debug.draw_colliders"));
+            .push(ConsoleRequest::new("res get DebugSettings.draw_colliders"));
         crate::execution::execute_pending_commands(app.world_mut());
         assert_eq!(
             app.world()
@@ -752,24 +810,30 @@ mod tests {
                 .last_line()
                 .unwrap()
                 .text,
-            "debug.draw_colliders = false - Draw collider shapes"
+            "DebugSettings.draw_colliders = false - Draw collider shapes"
         );
 
         app.world_mut()
             .resource_mut::<ConsoleCommandQueue>()
-            .push(ConsoleRequest::new("res set debug.draw_colliders true"));
+            .push(ConsoleRequest::new(
+                "res set DebugSettings.draw_colliders true",
+            ));
         crate::execution::execute_pending_commands(app.world_mut());
         assert!(app.world().resource::<DebugSettings>().draw_colliders);
 
         app.world_mut()
             .resource_mut::<ConsoleCommandQueue>()
-            .push(ConsoleRequest::new("res set debug.label production"));
+            .push(ConsoleRequest::new(
+                "res set DebugSettings.label production",
+            ));
         crate::execution::execute_pending_commands(app.world_mut());
         assert_eq!(app.world().resource::<DebugSettings>().label, "development");
 
         app.world_mut()
             .resource_mut::<ConsoleCommandQueue>()
-            .push(ConsoleRequest::new("res set debug.draw_colliders maybe"));
+            .push(ConsoleRequest::new(
+                "res set DebugSettings.draw_colliders maybe",
+            ));
         crate::execution::execute_pending_commands(app.world_mut());
 
         let messages = app.world().resource::<Messages<ConsoleCommandExecuted>>();
@@ -788,7 +852,7 @@ mod tests {
         let last_changed = app.world().resource_ref::<DebugSettings>().last_changed();
         app.world_mut()
             .resource_mut::<ConsoleCommandQueue>()
-            .push(ConsoleRequest::new("res add debug.max_fps invalid"));
+            .push(ConsoleRequest::new("res add DebugSettings.max_fps invalid"));
         crate::execution::execute_pending_commands(app.world_mut());
         assert_eq!(
             app.world().resource_ref::<DebugSettings>().last_changed(),
@@ -798,19 +862,21 @@ mod tests {
 
         app.world_mut()
             .resource_mut::<ConsoleCommandQueue>()
-            .push(ConsoleRequest::new("res add debug.max_fps 24"));
+            .push(ConsoleRequest::new("res add DebugSettings.max_fps 24"));
         crate::execution::execute_pending_commands(app.world_mut());
         assert_eq!(app.world().resource::<DebugSettings>().max_fps, 84);
 
         app.world_mut()
             .resource_mut::<ConsoleCommandQueue>()
-            .push(ConsoleRequest::new("res sub debug.max_fps 30"));
+            .push(ConsoleRequest::new("res sub DebugSettings.max_fps 30"));
         crate::execution::execute_pending_commands(app.world_mut());
         assert_eq!(app.world().resource::<DebugSettings>().max_fps, 54);
 
         app.world_mut()
             .resource_mut::<ConsoleCommandQueue>()
-            .push(ConsoleRequest::new("res toggle debug.draw_colliders"));
+            .push(ConsoleRequest::new(
+                "res toggle DebugSettings.draw_colliders",
+            ));
         crate::execution::execute_pending_commands(app.world_mut());
         assert!(!app.world().resource::<DebugSettings>().draw_colliders);
     }
@@ -819,16 +885,30 @@ mod tests {
     fn application_specific_property_values_can_be_registered() {
         let mut app = App::new();
         app.register_console_property_value::<CustomValue>()
-            .add_console_resource::<CustomSettings>("custom")
+            .add_console_resource::<CustomSettings>()
             .insert_resource(CustomSettings {
                 value: CustomValue(3),
             });
 
-        assert_eq!(get_value(app.world(), "custom.value").unwrap(), "3");
+        assert_eq!(get_value(app.world(), "CustomSettings.value").unwrap(), "3");
         assert_eq!(
-            set_value(app.world_mut(), "custom.value", "7").unwrap(),
+            set_value(app.world_mut(), "CustomSettings.value", "7").unwrap(),
             "7"
         );
         assert_eq!(app.world().resource::<CustomSettings>().value.0, 7);
+    }
+
+    #[test]
+    fn duplicate_resource_names_use_full_type_paths() {
+        let mut app = App::new();
+        app.add_console_resource::<first::Settings>()
+            .add_console_resource::<second::Settings>();
+        let resources = app.world().resource::<ConsoleResources>();
+        let first = format!("{}.value", first::Settings::type_path());
+        let second = format!("{}.value", second::Settings::type_path());
+
+        assert!(resources.get("Settings.value").is_none());
+        assert!(resources.get(&first).is_some());
+        assert!(resources.get(&second).is_some());
     }
 }

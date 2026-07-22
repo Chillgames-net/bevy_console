@@ -1,12 +1,12 @@
 //! Expose selected fields on a Bevy resource in the developer console.
 //!
 //! Try:
-//!   res get render.wireframes
-//!   res set render.max_fps 144
-//!   res add render.max_fps 24
-//!   res sub render.max_fps 30
-//!   res toggle render.wireframes
-//!   res set render.build_label release    # rejected: read-only
+//!   res get RenderSettings.wireframes
+//!   res set RenderSettings.max_fps 144
+//!   res add RenderSettings.max_fps 24
+//!   res sub RenderSettings.max_fps 30
+//!   res toggle RenderSettings.wireframes
+//!   res set RenderSettings.build_label release    # rejected: read-only
 //!
 //! Run with: `cargo run --example resource_properties`
 
@@ -38,7 +38,7 @@ fn main() {
             max_fps: 60,
             build_label: "development".into(),
         })
-        .add_console_resource::<RenderSettings>("render")
+        .add_console_resource::<RenderSettings>()
         .add_systems(Startup, setup)
         .add_systems(Update, apply_render_settings)
         .run();

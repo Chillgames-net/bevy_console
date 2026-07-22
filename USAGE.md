@@ -126,12 +126,14 @@ app.insert_resource(DebugSettings {
     build_label: "development".into(),
     max_fps: 60,
 })
-.add_console_resource::<DebugSettings>("debug");
+.add_console_resource::<DebugSettings>();
 ```
 
-This creates `debug.draw_colliders`, `debug.build_label`, and `debug.max_fps`.
-`res set debug.draw_colliders true` mutates `DebugSettings` itself, so ordinary
-Bevy change detection observes it. `readonly` rejects mutating operations.
+This creates `DebugSettings.draw_colliders`, `DebugSettings.build_label`, and
+`DebugSettings.max_fps`. `res set DebugSettings.draw_colliders true` mutates
+`DebugSettings` itself, so ordinary Bevy change detection observes it.
+`readonly` rejects mutating operations. If two registered resources have the
+same short type path, use their full reflected type paths to disambiguate them.
 
 `res` groups resource operations: `res get <name>`, `res set <name> <value>`,
 `res add <name> <amount>`, `res sub <name> <amount>`, and `res toggle <name>`.
@@ -166,7 +168,9 @@ Game systems can queue commands without simulating keyboard input:
 
 ```rust
 fn run_startup_command(mut commands: MessageWriter<ConsoleRequest>) {
-    commands.write(ConsoleRequest::new("res set debug.draw_colliders true"));
+    commands.write(ConsoleRequest::new(
+        "res set DebugSettings.draw_colliders true",
+    ));
 }
 ```
 

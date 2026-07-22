@@ -156,10 +156,12 @@ pub trait ConsoleAppExt {
     /// ```
     fn add_console_command(&mut self, command: ConsoleCommand) -> &mut Self;
 
-    /// Registers supported reflected fields from a Bevy resource under `prefix`.
+    /// Registers supported reflected fields from a Bevy resource.
     ///
-    /// The resource must derive [`Reflect`] with `#[reflect(Resource)]`.
-    fn add_console_resource<R>(&mut self, prefix: impl Into<String>) -> &mut Self
+    /// Properties use the resource's reflected short type path, or its full type
+    /// path when multiple registered resources share the same short path. The
+    /// resource must derive [`Reflect`] with `#[reflect(Resource)]`.
+    fn add_console_resource<R>(&mut self) -> &mut Self
     where
         R: Resource + Reflect + FromReflect + GetTypeRegistration + Typed;
 
@@ -191,11 +193,11 @@ impl ConsoleAppExt for App {
         self
     }
 
-    fn add_console_resource<R>(&mut self, prefix: impl Into<String>) -> &mut Self
+    fn add_console_resource<R>(&mut self) -> &mut Self
     where
         R: Resource + Reflect + FromReflect + GetTypeRegistration + Typed,
     {
-        resource_properties::register_resource::<R>(self, prefix);
+        resource_properties::register_resource::<R>(self);
         self
     }
 
