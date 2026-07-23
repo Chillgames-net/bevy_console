@@ -1,6 +1,6 @@
 [package]
 name = "chill_bevy_console_derive"
-version = "0.3.0"
+version = "0.3.1"
 edition = "2024"
 rust-version = "1.85"
 description = "Derive macros for chill_bevy_console"

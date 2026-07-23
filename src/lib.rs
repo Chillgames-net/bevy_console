@@ -57,6 +57,7 @@ mod parser;
 mod registry;
 mod scroll;
 mod state;
+mod state_commands;
 mod ui;
 
 #[cfg(feature = "resource-properties")]
@@ -97,6 +98,8 @@ extern crate self as chill_bevy_console;
 use bevy::asset::uuid_handle;
 use bevy::input_focus::{InputDispatchPlugin, InputFocusPlugin};
 use bevy::prelude::*;
+use bevy::reflect::{FromReflect, GetTypeRegistration, Typed};
+use bevy::state::state::FreelyMutableState;
 use bevy::ui_widgets::EditableTextInputPlugin;
 
 // ── Embedded font ──────────────────────────────────────────────────────────────
@@ -167,6 +170,13 @@ pub trait ConsoleAppExt {
     /// Register the opt-in console properties generated for a Bevy resource.
     #[cfg(feature = "resource-properties")]
     fn add_console_resource<R: ConsoleResource>(&mut self) -> &mut Self;
+
+    /// Register a reflected Bevy state for the built-in `state` command.
+    ///
+    /// Call this after [`bevy::state::app::AppExtStates::init_state`].
+    fn add_console_state<S>(&mut self) -> &mut Self
+    where
+        S: FreelyMutableState + FromReflect + GetTypeRegistration + Typed;
 }
 
 impl ConsoleAppExt for App {
@@ -188,6 +198,13 @@ impl ConsoleAppExt for App {
     fn add_console_resource<R: ConsoleResource>(&mut self) -> &mut Self {
         resource_properties::register_resource::<R>(self);
         self
+    }
+
+    fn add_console_state<S>(&mut self) -> &mut Self
+    where
+        S: FreelyMutableState + FromReflect + GetTypeRegistration + Typed,
+    {
+        state_commands::register_state::<S>(self)
     }
 }
 
@@ -307,6 +324,7 @@ impl Plugin for ChillConsole {
             .add_message::<ConsoleLineMessage>()
             .add_message::<ConsoleCommandExecuted>()
             .add_plugins(commands::plugin)
+            .add_plugins(state_commands::plugin)
             .add_systems(
                 Update,
                 (
