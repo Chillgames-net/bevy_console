@@ -7,6 +7,8 @@
 //!   map missing
 //!   res set debug.draw_colliders true
 //!   res get debug.draw_colliders
+//!   state get GameState
+//!   state set GameState Playing
 //!
 //! Run with: `cargo run --example advanced --features resource-properties`
 
@@ -23,6 +25,13 @@ struct MapInfo {
     name: &'static str,
     description: &'static str,
     experimental: bool,
+}
+
+#[derive(States, Reflect, Default, Debug, Clone, PartialEq, Eq, Hash)]
+enum GameState {
+    #[default]
+    Menu,
+    Playing,
 }
 
 #[derive(Resource, ConsoleResource)]
@@ -55,7 +64,12 @@ fn main() {
         .insert_resource(DebugSettings {
             draw_colliders: false,
         })
-        .add_plugins(ChillConsole::default().with_builtin_commands([BuiltinCommand::Res]))
+        .add_plugins(
+            ChillConsole::default()
+                .with_builtin_commands([BuiltinCommand::Res, BuiltinCommand::State]),
+        )
+        .init_state::<GameState>()
+        .add_console_state::<GameState>()
         .add_console_resource::<DebugSettings>()
         .add_console_command(
             ConsoleCommand::new("map", "map <name> - load a map", load_map)
