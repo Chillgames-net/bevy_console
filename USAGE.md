@@ -355,8 +355,9 @@ fn lock_console_for_release(mut state: ResMut<ConsoleState>) {
 
 ### Reflected states
 
-The `state` command discovers states registered with Bevy reflection. Derive
-`Reflect` for each freely mutable state, then register it after initialization:
+The `state` command discovers states explicitly registered through
+`add_console_state`. Derive `Reflect` for each freely mutable state, then
+register it after initialization:
 
 ```rust
 #[derive(States, Reflect, Default, Debug, Clone, PartialEq, Eq, Hash)]

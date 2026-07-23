@@ -55,10 +55,10 @@ mod parser;
 mod registry;
 mod scroll;
 mod state;
-mod state_commands;
 mod ui;
 
 mod resource_properties;
+mod state_commands;
 
 #[cfg(feature = "persistent-history")]
 mod persistence;
@@ -88,7 +88,7 @@ use bevy::asset::uuid_handle;
 use bevy::input_focus::{InputDispatchPlugin, InputFocusPlugin};
 use bevy::prelude::*;
 use bevy::reflect::{FromReflect, GetTypeRegistration, Typed};
-use bevy::state::{app::AppExtStates, state::FreelyMutableState};
+use bevy::state::state::FreelyMutableState;
 use bevy::ui_widgets::EditableTextInputPlugin;
 
 // ── Embedded font ──────────────────────────────────────────────────────────────
@@ -213,7 +213,7 @@ impl ConsoleAppExt for App {
     where
         S: FreelyMutableState + FromReflect + GetTypeRegistration + Typed,
     {
-        self.register_type_mutable_state::<S>()
+        state_commands::register_state::<S>(self)
     }
 }
 

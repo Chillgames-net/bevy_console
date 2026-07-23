@@ -277,14 +277,18 @@ impl ConsoleResources {
             "console resource `{resource_type_path}` is already registered"
         );
 
-        let short_path_collision = self
-            .properties
-            .values()
-            .any(|property| property.resource_short_type_path == resource_short_type_path);
+        let short_path_collision = self.properties.values().any(|property| {
+            property
+                .resource_short_type_path
+                .eq_ignore_ascii_case(resource_short_type_path)
+        });
         if short_path_collision {
             let existing = std::mem::take(&mut self.properties);
             for mut property in existing.into_values() {
-                if property.resource_short_type_path == resource_short_type_path {
+                if property
+                    .resource_short_type_path
+                    .eq_ignore_ascii_case(resource_short_type_path)
+                {
                     property.use_full_type_path();
                 }
                 self.insert(property);
@@ -316,8 +320,8 @@ impl ConsoleResources {
 
     fn iter(&self) -> impl Iterator<Item = (&str, &RegisteredConsoleProperty)> {
         self.properties
-            .iter()
-            .map(|(name, property)| (name.as_str(), property))
+            .values()
+            .map(|property| (property.name.as_str(), property))
     }
 }
 
@@ -363,6 +367,16 @@ where
 }
 
 fn register_builtin_property_values(app: &mut App) {
+    let already_registered = app
+        .world()
+        .resource::<AppTypeRegistry>()
+        .read()
+        .get_type_data::<ReflectConsolePropertyValue>(TypeId::of::<bool>())
+        .is_some();
+    if already_registered {
+        return;
+    }
+
     macro_rules! register {
         ($($type:ty),* $(,)?) => {
             $(register_property_value::<$type>(app);)*
@@ -569,26 +583,28 @@ fn res_property(world: &mut World, args: Args) -> ConsoleResult {
         return ConsoleResult::error("Usage: res <get|set|add|sub|toggle> <property> [value]");
     };
     match operation.to_ascii_lowercase().as_str() {
-        "get" => show_property(world, name),
-        "set" => {
-            let Some(value) = args.get(2) else {
-                return ConsoleResult::error("Usage: res set <property> <value>");
-            };
+        "get" if args.len() == 2 => show_property(world, name),
+        "set" if args.len() == 3 => {
+            let value = args.get(2).expect("set arity was checked");
             match set_value(world, name, value) {
                 Ok(value) => ConsoleResult::info(format!("{name} = {value}")),
                 Err(error) => ConsoleResult::error(format!("Invalid value for {name}: {error}")),
             }
         }
-        "add" | "sub" => {
-            let Some(amount) = args.get(2) else {
-                return ConsoleResult::error(format!("Usage: res {operation} <property> <amount>"));
-            };
+        "add" | "sub" if args.len() == 3 => {
+            let amount = args.get(2).expect("adjustment arity was checked");
             match adjust_value(world, name, amount, operation.eq_ignore_ascii_case("sub")) {
                 Ok(value) => ConsoleResult::info(format!("{name} = {value}")),
                 Err(error) => ConsoleResult::error(format!("Invalid amount for {name}: {error}")),
             }
         }
-        "toggle" => toggle_property(world, name),
+        "toggle" if args.len() == 2 => toggle_property(world, name),
+        "get" => ConsoleResult::error("Usage: res get <property>"),
+        "set" => ConsoleResult::error("Usage: res set <property> <value>"),
+        "add" | "sub" => {
+            ConsoleResult::error(format!("Usage: res {operation} <property> <amount>"))
+        }
+        "toggle" => ConsoleResult::error("Usage: res toggle <property>"),
         _ => ConsoleResult::error("Usage: res <get|set|add|sub|toggle> <property> [value]"),
     }
 }
@@ -637,11 +653,18 @@ fn complete_res_property_names(
     properties: &ConsoleResources,
 ) -> Vec<CompletionItem> {
     let operation = request.argument(0);
-    property_items(properties, |property| match operation {
-        Some("toggle") => property.value.is_boolean && !property.readonly,
-        Some("add" | "sub") => property.value.is_numeric && !property.readonly,
-        Some("set") => !property.readonly,
-        _ => true,
+    property_items(properties, |property| {
+        if operation.is_some_and(|operation| operation.eq_ignore_ascii_case("toggle")) {
+            property.value.is_boolean && !property.readonly
+        } else if operation.is_some_and(|operation| {
+            operation.eq_ignore_ascii_case("add") || operation.eq_ignore_ascii_case("sub")
+        }) {
+            property.value.is_numeric && !property.readonly
+        } else if operation.is_some_and(|operation| operation.eq_ignore_ascii_case("set")) {
+            !property.readonly
+        } else {
+            true
+        }
     })
 }
 
@@ -659,7 +682,10 @@ fn complete_res_property_values(
     request: &CompletionRequest,
     properties: &ConsoleResources,
 ) -> Vec<CompletionItem> {
-    if !matches!(request.argument(0), Some("set")) {
+    if !request
+        .argument(0)
+        .is_some_and(|operation| operation.eq_ignore_ascii_case("set"))
+    {
         return Vec::new();
     }
     let Some(name) = request.argument(1) else {
@@ -799,6 +825,13 @@ mod tests {
                 .get("DebugSettings.ignored_unsupported_type")
                 .is_none()
         );
+        let property_completions =
+            property_items(app.world().resource::<ConsoleResources>(), |_| true);
+        assert!(
+            property_completions
+                .iter()
+                .any(|item| { item.label == "DebugSettings.draw_colliders" })
+        );
 
         app.world_mut()
             .resource_mut::<ConsoleCommandQueue>()
@@ -816,7 +849,7 @@ mod tests {
         app.world_mut()
             .resource_mut::<ConsoleCommandQueue>()
             .push(ConsoleRequest::new(
-                "res set DebugSettings.draw_colliders true",
+                "ReS SeT debugsettings.DRAW_COLLIDERS true",
             ));
         crate::execution::execute_pending_commands(app.world_mut());
         assert!(app.world().resource::<DebugSettings>().draw_colliders);
@@ -878,6 +911,30 @@ mod tests {
                 "res toggle DebugSettings.draw_colliders",
             ));
         crate::execution::execute_pending_commands(app.world_mut());
+        assert!(!app.world().resource::<DebugSettings>().draw_colliders);
+
+        for command in [
+            "res get DebugSettings.max_fps ignored",
+            "res set DebugSettings.max_fps 120 ignored",
+            "res add DebugSettings.max_fps 1 ignored",
+            "res sub DebugSettings.max_fps 1 ignored",
+            "res toggle DebugSettings.draw_colliders ignored",
+        ] {
+            app.world_mut()
+                .resource_mut::<ConsoleCommandQueue>()
+                .push(ConsoleRequest::new(command));
+            crate::execution::execute_pending_commands(app.world_mut());
+            assert_eq!(
+                app.world()
+                    .resource::<ConsoleBuffer>()
+                    .last_line()
+                    .unwrap()
+                    .level,
+                crate::ConsoleLevel::Error,
+                "extra arguments should be rejected for `{command}`"
+            );
+        }
+        assert_eq!(app.world().resource::<DebugSettings>().max_fps, 54);
         assert!(!app.world().resource::<DebugSettings>().draw_colliders);
     }
 

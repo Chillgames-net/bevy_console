@@ -200,7 +200,9 @@ fn complete_alias_names(
     request: &CompletionRequest,
     aliases: &ConsoleAliases,
 ) -> Vec<CompletionItem> {
-    if !matches!(request.argument(0), Some("get" | "remove")) {
+    if !request.argument(0).is_some_and(|operation| {
+        operation.eq_ignore_ascii_case("get") || operation.eq_ignore_ascii_case("remove")
+    }) {
         return Vec::new();
     }
     aliases
@@ -300,7 +302,10 @@ fn complete_commands_after_set(
     registry: &ConsoleRegistry,
     aliases: &ConsoleAliases,
 ) -> Vec<CompletionItem> {
-    if !matches!(request.argument(0), Some("set")) {
+    if !request
+        .argument(0)
+        .is_some_and(|operation| operation.eq_ignore_ascii_case("set"))
+    {
         return Vec::new();
     }
     runtime_command_completions(registry, aliases)

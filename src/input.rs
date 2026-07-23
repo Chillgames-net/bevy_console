@@ -571,11 +571,11 @@ mod tests {
         let mut app = command_test_app(BuiltinCommands::default());
         app.world_mut()
             .resource_mut::<ConsoleCommandQueue>()
-            .push(ConsoleRequest::new(r#"echo "hello world" two"#));
+            .push(ConsoleRequest::new(r#"EcHo "hello world" two"#));
         execute_pending_commands(app.world_mut());
 
         let lines = app.world().resource::<ConsoleBuffer>().lines();
-        assert_eq!(lines[0].text, r#"> echo "hello world" two"#);
+        assert_eq!(lines[0].text, r#"> EcHo "hello world" two"#);
         assert_eq!(lines[1].text, "hello world|two");
 
         app.world_mut()

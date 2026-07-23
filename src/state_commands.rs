@@ -8,15 +8,17 @@ use crate::{
 use bevy::ecs::reflect::AppTypeRegistry;
 use bevy::prelude::*;
 use bevy::reflect::{
-    ReflectRef, TypeInfo, TypeRegistry,
+    FromReflect, GetTypeRegistration, ReflectRef, TypeInfo, TypeRegistry, Typed,
     enums::{DynamicEnum, EnumInfo, VariantInfo},
 };
 use bevy::state::reflect::{ReflectFreelyMutableState, ReflectState};
-use std::collections::HashMap;
+use bevy::state::{app::AppExtStates, state::FreelyMutableState};
+use std::any::{TypeId, type_name};
 
 /// Registers the built-in `state` command and its completion provider.
 pub(crate) fn plugin(app: &mut App) {
     let enabled = app.world().resource::<crate::BuiltinCommands>().clone();
+    app.init_resource::<ConsoleStates>();
     if enabled.contains(&BuiltinCommand::State) {
         let completer = app.world_mut().register_system(complete_state);
         app.world_mut()
@@ -43,10 +45,67 @@ pub(crate) fn plugin(app: &mut App) {
 #[derive(Clone)]
 struct ReflectedState {
     name: &'static str,
+    short_name: &'static str,
     type_path: &'static str,
+    type_id: TypeId,
     type_info: &'static TypeInfo,
     state: ReflectState,
     mutable_state: ReflectFreelyMutableState,
+}
+
+/// Cached metadata for states explicitly exposed through [`ConsoleAppExt`].
+#[derive(Resource, Default)]
+struct ConsoleStates {
+    states: Vec<ReflectedState>,
+}
+
+impl ConsoleStates {
+    fn register(&mut self, state: ReflectedState) {
+        assert!(
+            !self
+                .states
+                .iter()
+                .any(|registered| registered.type_id == state.type_id),
+            "console state `{}` is already registered",
+            state.type_path
+        );
+        self.states.push(state);
+
+        for index in 0..self.states.len() {
+            let short_name = self.states[index].short_name;
+            let has_collision = self.states.iter().enumerate().any(|(other, state)| {
+                other != index && state.short_name.eq_ignore_ascii_case(short_name)
+            });
+            self.states[index].name = if has_collision {
+                self.states[index].type_path
+            } else {
+                short_name
+            };
+        }
+
+        for (index, state) in self.states.iter().enumerate() {
+            assert!(
+                !self.states[..index]
+                    .iter()
+                    .any(|other| other.name.eq_ignore_ascii_case(state.name)),
+                "console state name `{}` is ambiguous even when using its full type path",
+                state.name
+            );
+        }
+    }
+
+    fn find(&self, name: &str) -> Option<ReflectedState> {
+        self.states
+            .iter()
+            .find(|state| {
+                state.name.eq_ignore_ascii_case(name) || state.type_path.eq_ignore_ascii_case(name)
+            })
+            .cloned()
+    }
+
+    fn iter(&self) -> impl Iterator<Item = &ReflectedState> {
+        self.states.iter()
+    }
 }
 
 impl ReflectedState {
@@ -115,46 +174,43 @@ impl ReflectedState {
     }
 }
 
-fn reflected_states(registry: &TypeRegistry) -> Vec<ReflectedState> {
-    let mut states = registry
-        .iter()
-        .filter_map(|registration| {
-            matches!(registration.type_info(), TypeInfo::Enum(_)).then_some(())?;
-            Some(ReflectedState {
-                name: registration.type_info().type_path_table().short_path(),
-                type_path: registration.type_info().type_path(),
-                type_info: registration.type_info(),
-                state: registration.data::<ReflectState>()?.clone(),
-                mutable_state: registration.data::<ReflectFreelyMutableState>()?.clone(),
-            })
-        })
-        .collect::<Vec<_>>();
-    let name_counts = states.iter().fold(HashMap::new(), |mut counts, state| {
-        *counts.entry(state.name).or_insert(0) += 1;
-        counts
-    });
-    for state in &mut states {
-        if name_counts[state.name] > 1 {
-            state.name = state.type_path;
+pub(crate) fn register_state<S>(app: &mut App) -> &mut App
+where
+    S: FreelyMutableState + FromReflect + GetTypeRegistration + Typed,
+{
+    app.register_type_mutable_state::<S>();
+    let state = {
+        let registry = app.world().resource::<AppTypeRegistry>().read();
+        let registration = registry
+            .get(TypeId::of::<S>())
+            .expect("the console state type was just registered");
+        assert!(
+            matches!(registration.type_info(), TypeInfo::Enum(_)),
+            "console state `{}` must reflect as an enum",
+            type_name::<S>()
+        );
+        ReflectedState {
+            name: registration.type_info().type_path_table().short_path(),
+            short_name: registration.type_info().type_path_table().short_path(),
+            type_path: registration.type_info().type_path(),
+            type_id: TypeId::of::<S>(),
+            type_info: registration.type_info(),
+            state: registration
+                .data::<ReflectState>()
+                .expect("the console state was registered with ReflectState")
+                .clone(),
+            mutable_state: registration
+                .data::<ReflectFreelyMutableState>()
+                .expect("the console state was registered with ReflectFreelyMutableState")
+                .clone(),
         }
-    }
-    states
-}
+    };
 
-fn find_state(registry: &TypeRegistry, name: &str) -> Option<ReflectedState> {
-    reflected_states(registry).into_iter().find(|state| {
-        state.name.eq_ignore_ascii_case(name) || state.type_path.eq_ignore_ascii_case(name)
-    })
-}
-
-fn type_registry(world: &World) -> Result<bevy::reflect::TypeRegistryArc, String> {
-    world
-        .get_resource::<AppTypeRegistry>()
-        .map(|registry| registry.0.clone())
-        .ok_or_else(|| {
-            "No reflected states are registered; call add_console_state::<S>() for each console state"
-                .into()
-        })
+    app.init_resource::<ConsoleStates>();
+    app.world_mut()
+        .resource_mut::<ConsoleStates>()
+        .register(state);
+    app
 }
 
 fn state_command(world: &mut World, args: Args) -> ConsoleResult {
@@ -164,12 +220,10 @@ fn state_command(world: &mut World, args: Args) -> ConsoleResult {
     let Some(name) = args.get(1) else {
         return ConsoleResult::error("Usage: state <get|set> <state> [value]");
     };
-    let registry = match type_registry(world) {
-        Ok(registry) => registry,
-        Err(error) => return ConsoleResult::error(error),
-    };
-    let registry = registry.read();
-    let Some(state) = find_state(&registry, name) else {
+    let Some(state) = world
+        .get_resource::<ConsoleStates>()
+        .and_then(|states| states.find(name))
+    else {
         return ConsoleResult::error(format!(
             "Unknown reflected state: {name}. Call add_console_state::<S>() to expose it"
         ));
@@ -180,12 +234,16 @@ fn state_command(world: &mut World, args: Args) -> ConsoleResult {
             Ok(value) => ConsoleResult::info(format!("{} = {value}", state.name)),
             Err(error) => ConsoleResult::error(error),
         },
-        "set" if args.len() == 3 => match state.set_value(world, &registry, args.get(2).unwrap()) {
-            Ok(value) => ConsoleResult::info(format!("{} = {value} (pending)", state.name)),
-            Err(error) => {
-                ConsoleResult::error(format!("Invalid value for {}: {error}", state.name))
+        "set" if args.len() == 3 => {
+            let registry = world.resource::<AppTypeRegistry>().0.clone();
+            let value = args.get(2).expect("set arity was checked");
+            match state.set_value(world, &registry.read(), value) {
+                Ok(value) => ConsoleResult::info(format!("{} = {value} (pending)", state.name)),
+                Err(error) => {
+                    ConsoleResult::error(format!("Invalid value for {}: {error}", state.name))
+                }
             }
-        },
+        }
         "get" => ConsoleResult::error("Usage: state get <state>"),
         "set" => ConsoleResult::error("Usage: state set <state> <value>"),
         _ => ConsoleResult::error("Usage: state <get|set> <state> [value]"),
@@ -194,22 +252,17 @@ fn state_command(world: &mut World, args: Args) -> ConsoleResult {
 
 fn complete_state(
     In(request): ConsoleCompletionRequest,
-    registry: Option<Res<AppTypeRegistry>>,
+    states: Res<ConsoleStates>,
 ) -> Vec<CompletionItem> {
     match request.argument_index() {
         0 => static_completion_items([
             ("get", "Shows the current state value"),
             ("set", "Queues a state transition"),
         ]),
-        1 => registry
-            .as_ref()
-            .map(|registry| {
-                reflected_states(&registry.0.read())
-                    .into_iter()
-                    .map(|state| CompletionItem::new(state.name, "reflected state"))
-                    .collect()
-            })
-            .unwrap_or_default(),
+        1 => states
+            .iter()
+            .map(|state| CompletionItem::new(state.name, "reflected state"))
+            .collect(),
         2 => {
             if !request
                 .argument(0)
@@ -217,14 +270,10 @@ fn complete_state(
             {
                 return Vec::new();
             }
-            let Some(registry) = registry else {
-                return Vec::new();
-            };
             let Some(name) = request.argument(1) else {
                 return Vec::new();
             };
-            let registry = registry.0.read();
-            let Some(state) = find_state(&registry, name) else {
+            let Some(state) = states.find(name) else {
                 return Vec::new();
             };
             state
@@ -253,6 +302,13 @@ mod tests {
         Loading {
             level: u32,
         },
+    }
+
+    #[derive(States, Reflect, Default, Debug, Clone, PartialEq, Eq, Hash)]
+    enum InspectorState {
+        #[default]
+        Hidden,
+        Visible,
     }
 
     mod first {
@@ -307,7 +363,7 @@ mod tests {
 
         app.world_mut()
             .resource_mut::<ConsoleCommandQueue>()
-            .push(ConsoleRequest::new(format!("state get {}", state_name())));
+            .push(ConsoleRequest::new("StAtE GeT gamestate"));
         crate::execution::execute_pending_commands(app.world_mut());
         assert_eq!(
             app.world()
@@ -321,14 +377,28 @@ mod tests {
         app.world_mut()
             .resource_mut::<ConsoleCommandQueue>()
             .push(ConsoleRequest::new(format!(
-                "state set {} playing",
-                state_name()
+                "state set {} pLaYiNg",
+                state_name().to_ascii_lowercase()
             )));
         crate::execution::execute_pending_commands(app.world_mut());
         assert!(matches!(
             app.world().resource::<NextState<GameState>>(),
             NextState::Pending(GameState::Playing)
         ));
+    }
+
+    #[test]
+    fn only_console_registered_states_are_cached_and_exposed() {
+        let mut app = App::new();
+        app.add_plugins(bevy::state::app::StatesPlugin)
+            .init_state::<GameState>()
+            .add_console_state::<GameState>()
+            .init_state::<InspectorState>()
+            .register_type_mutable_state::<InspectorState>();
+
+        let states = app.world().resource::<ConsoleStates>();
+        assert!(states.find("gamestate").is_some());
+        assert!(states.find("InspectorState").is_none());
     }
 
     #[test]
@@ -363,9 +433,10 @@ mod tests {
             .add_console_state::<first::GameState>()
             .init_state::<second::GameState>()
             .add_console_state::<second::GameState>();
-        let registry = app.world().resource::<AppTypeRegistry>().0.clone();
-        let names = reflected_states(&registry.read())
-            .into_iter()
+        let names = app
+            .world()
+            .resource::<ConsoleStates>()
+            .iter()
             .map(|state| state.name)
             .collect::<Vec<_>>();
 
