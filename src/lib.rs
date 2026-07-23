@@ -32,8 +32,6 @@
 //!   default font, so consumers don't need to ship a font asset.
 //! - `persistent-history` — load and save a plain-text input/output transcript
 //!   between runs. The path is configured through [`ConsolePersistence`].
-//! - `resource-properties` — expose selected fields on Bevy resources through
-//!   the console. See [`ConsoleResource`] and [`ConsoleAppExt::add_console_resource`].
 //!
 //! # Customization
 //!
@@ -59,8 +57,8 @@ mod scroll;
 mod state;
 mod ui;
 
-#[cfg(feature = "resource-properties")]
 mod resource_properties;
+mod state_commands;
 
 #[cfg(feature = "persistent-history")]
 mod persistence;
@@ -80,23 +78,17 @@ pub use persistence::ConsolePersistence;
 pub use registry::ConsoleRegistry;
 pub use state::ConsoleState;
 
-#[cfg(feature = "resource-properties")]
-pub use chill_bevy_console_derive::ConsoleResource;
-#[cfg(feature = "resource-properties")]
-pub use resource_properties::{ConsoleProperty, ConsolePropertyValue, ConsoleResource};
+pub use resource_properties::{ConsoleProperty, ConsolePropertyValue, ReflectConsolePropertyValue};
 
 pub(crate) use logging::ConsoleLogCapture;
 pub(crate) use model::ConsoleCommandQueue;
-
-// Allows the re-exported derive to refer to this crate when it is used by the
-// crate's own tests and doctests.
-#[cfg(feature = "resource-properties")]
-extern crate self as chill_bevy_console;
 
 #[cfg(feature = "embedded-font")]
 use bevy::asset::uuid_handle;
 use bevy::input_focus::{InputDispatchPlugin, InputFocusPlugin};
 use bevy::prelude::*;
+use bevy::reflect::{FromReflect, GetTypeRegistration, Typed};
+use bevy::state::state::FreelyMutableState;
 use bevy::ui_widgets::EditableTextInputPlugin;
 
 // ── Embedded font ──────────────────────────────────────────────────────────────
@@ -164,9 +156,21 @@ pub trait ConsoleAppExt {
     /// ```
     fn add_console_command(&mut self, command: ConsoleCommand) -> &mut Self;
 
-    /// Register the opt-in console properties generated for a Bevy resource.
-    #[cfg(feature = "resource-properties")]
-    fn add_console_resource<R: ConsoleResource>(&mut self) -> &mut Self;
+    /// Registers supported reflected fields from a Bevy resource.
+    ///
+    /// Properties use the resource's reflected short type path, or its full type
+    /// path when multiple registered resources share the same short path. The
+    /// resource must derive [`Reflect`] with `#[reflect(Resource)]`.
+    fn add_console_resource<R>(&mut self) -> &mut Self
+    where
+        R: Resource + Reflect + FromReflect + GetTypeRegistration + Typed;
+
+    /// Register a reflected Bevy state for the built-in `state` command.
+    ///
+    /// Call this after [`bevy::state::app::AppExtStates::init_state`].
+    fn add_console_state<S>(&mut self) -> &mut Self
+    where
+        S: FreelyMutableState + FromReflect + GetTypeRegistration + Typed;
 }
 
 impl ConsoleAppExt for App {
@@ -184,10 +188,19 @@ impl ConsoleAppExt for App {
         self
     }
 
-    #[cfg(feature = "resource-properties")]
-    fn add_console_resource<R: ConsoleResource>(&mut self) -> &mut Self {
+    fn add_console_resource<R>(&mut self) -> &mut Self
+    where
+        R: Resource + Reflect + FromReflect + GetTypeRegistration + Typed,
+    {
         resource_properties::register_resource::<R>(self);
         self
+    }
+
+    fn add_console_state<S>(&mut self) -> &mut Self
+    where
+        S: FreelyMutableState + FromReflect + GetTypeRegistration + Typed,
+    {
+        state_commands::register_state::<S>(self)
     }
 }
 
@@ -307,6 +320,7 @@ impl Plugin for ChillConsole {
             .add_message::<ConsoleLineMessage>()
             .add_message::<ConsoleCommandExecuted>()
             .add_plugins(commands::plugin)
+            .add_plugins(state_commands::plugin)
             .add_systems(
                 Update,
                 (
@@ -327,7 +341,6 @@ impl Plugin for ChillConsole {
                     .chain(),
             );
 
-        #[cfg(feature = "resource-properties")]
         app.add_plugins(resource_properties::plugin);
 
         #[cfg(feature = "persistent-history")]

@@ -320,18 +320,15 @@ impl ConsoleBinds {
 
 impl ConsoleAliases {
     pub fn set(&mut self, name: impl Into<String>, expansion: impl Into<String>) {
-        self.aliases
-            .insert(name.into().to_ascii_lowercase(), expansion.into());
+        self.aliases.insert(name.into(), expansion.into());
     }
 
     pub fn get(&self, name: &str) -> Option<&str> {
-        self.aliases
-            .get(&name.to_ascii_lowercase())
-            .map(String::as_str)
+        self.aliases.get(name).map(String::as_str)
     }
 
     pub fn remove(&mut self, name: &str) -> Option<String> {
-        self.aliases.remove(&name.to_ascii_lowercase())
+        self.aliases.remove(name)
     }
 
     pub fn iter(&self) -> impl Iterator<Item = (&str, &str)> {

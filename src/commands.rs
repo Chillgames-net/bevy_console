@@ -67,11 +67,7 @@ fn clear_cmd(
 ) -> ConsoleResult {
     buffer.clear();
     #[cfg(feature = "persistent-history")]
-    if args.len() == 1
-        && args
-            .get(0)
-            .is_some_and(|arg| arg.eq_ignore_ascii_case("--history"))
-    {
+    if args.len() == 1 && args.get(0).is_some_and(|arg| arg == "--history") {
         state.clear_command_history();
     }
     #[cfg(not(feature = "persistent-history"))]
@@ -116,7 +112,7 @@ fn alias_cmd(
     let Some(operation) = args.get(0) else {
         return ConsoleResult::error("Usage: alias <list|get|set|remove> [name] [command...]");
     };
-    match operation.to_ascii_lowercase().as_str() {
+    match operation {
         "list" if args.len() == 1 => {
             let aliases = aliases
                 .iter()
@@ -200,7 +196,9 @@ fn complete_alias_names(
     request: &CompletionRequest,
     aliases: &ConsoleAliases,
 ) -> Vec<CompletionItem> {
-    if !matches!(request.argument(0), Some("get" | "remove")) {
+    if !request.argument(0).is_some_and(|operation| {
+        operation.eq_ignore_ascii_case("get") || operation.eq_ignore_ascii_case("remove")
+    }) {
         return Vec::new();
     }
     aliases
@@ -213,7 +211,7 @@ fn bind_cmd(In(args): CommandArgs, mut binds: ResMut<ConsoleBinds>) -> ConsoleRe
     let Some(operation) = args.get(0) else {
         return ConsoleResult::error("Usage: bind <list|get|set|remove> [key] [command...]");
     };
-    match operation.to_ascii_lowercase().as_str() {
+    match operation {
         "list" if args.len() == 1 => {
             let binds = binds
                 .iter()
@@ -300,7 +298,10 @@ fn complete_commands_after_set(
     registry: &ConsoleRegistry,
     aliases: &ConsoleAliases,
 ) -> Vec<CompletionItem> {
-    if !matches!(request.argument(0), Some("set")) {
+    if !request
+        .argument(0)
+        .is_some_and(|operation| operation.eq_ignore_ascii_case("set"))
+    {
         return Vec::new();
     }
     runtime_command_completions(registry, aliases)
@@ -548,21 +549,6 @@ mod tests {
         assert_eq!(state.cmd_history_index, None);
         assert!(state.cmd_history_draft.is_empty());
         assert_eq!(state.command_history_revision, 8);
-    }
-
-    #[cfg(not(feature = "resource-properties"))]
-    #[test]
-    fn commands_plugin_does_not_register_property_commands_without_feature() {
-        let mut app = App::new();
-        app.insert_resource(ConsoleConfig::default())
-            .insert_resource(BuiltinCommands::default())
-            .add_plugins(plugin);
-
-        let registry = app.world().resource::<ConsoleRegistry>();
-        assert!(registry.get("get").is_none());
-        assert!(registry.get("res").is_none());
-        assert!(registry.get("set").is_none());
-        assert!(registry.get("toggle").is_none());
     }
 
     #[test]

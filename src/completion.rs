@@ -114,7 +114,7 @@ fn argument_completions(
     };
     let (argument, completer) = {
         let registry = world.resource::<ConsoleRegistry>();
-        let Some(def) = registry.get(command) else {
+        let Some(def) = registry.search(command) else {
             return Vec::new();
         };
         (def.spec.args.get(argument_index).cloned(), def.completer)
@@ -357,7 +357,7 @@ mod tests {
 
         {
             let mut state = app.world_mut().resource_mut::<ConsoleState>();
-            state.input = "changelevel fo".into();
+            state.input = "CHANGELEVEL fo".into();
             state.mark_input_changed();
         }
         refresh_completions(app.world_mut());
