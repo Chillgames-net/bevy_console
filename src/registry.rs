@@ -61,13 +61,30 @@ impl ConsoleRegistry {
         );
     }
 
-    /// Finds a command using its name or an alias, case-insensitively.
+    /// Finds a command using its exact registered name or alias.
     pub(crate) fn get(&self, name: &str) -> Option<&CommandDef> {
         self.resolve_name(name)
             .and_then(|name| self.commands.get(name))
     }
 
-    /// Returns whether a command or registered alias exists, case-insensitively.
+    /// Finds a command for case-insensitive completion search.
+    pub(crate) fn search(&self, name: &str) -> Option<&CommandDef> {
+        if let Some(command) = self.get(name) {
+            return Some(command);
+        }
+        let mut matches = self.commands.values().filter(|definition| {
+            definition.spec.name.eq_ignore_ascii_case(name)
+                || definition
+                    .spec
+                    .aliases
+                    .iter()
+                    .any(|alias| alias.eq_ignore_ascii_case(name))
+        });
+        let command = matches.next()?;
+        matches.next().is_none().then_some(command)
+    }
+
+    /// Returns whether an exact command or registered alias exists.
     pub fn contains(&self, name: &str) -> bool {
         self.resolve_name(name).is_some()
     }
@@ -78,7 +95,7 @@ impl ConsoleRegistry {
     }
 
     fn prepare_registration(&self, spec: &CommandSpec) -> String {
-        let name = spec.name.to_ascii_lowercase();
+        let name = spec.name.clone();
         if let Some(canonical) = self.resolve_alias(&name) {
             assert_eq!(
                 canonical, name,
@@ -89,20 +106,19 @@ impl ConsoleRegistry {
 
         let mut seen = BTreeSet::new();
         for alias in &spec.aliases {
-            let alias = alias.to_ascii_lowercase();
-            assert_ne!(alias, name, "command `{name}` cannot alias itself");
+            assert_ne!(*alias, name, "command `{name}` cannot alias itself");
             assert!(
-                !self.commands.contains_key(&alias),
+                !self.commands.contains_key(*alias),
                 "alias `{alias}` for `{name}` collides with registered command"
             );
-            if let Some(canonical) = self.resolve_alias(&alias) {
+            if let Some(canonical) = self.resolve_alias(alias) {
                 assert_eq!(
                     canonical, name,
                     "alias `{alias}` for `{name}` collides with alias for `{canonical}`"
                 );
             }
             assert!(
-                seen.insert(alias.clone()),
+                seen.insert(*alias),
                 "alias `{alias}` is repeated for command `{name}`"
             );
         }
@@ -110,24 +126,19 @@ impl ConsoleRegistry {
     }
 
     pub fn resolve_name(&self, name: &str) -> Option<&str> {
-        let normalized = name.to_ascii_lowercase();
-        if self.commands.contains_key(&normalized) {
+        if self.commands.contains_key(name) {
             return self
                 .commands
-                .get_key_value(&normalized)
+                .get_key_value(name)
                 .map(|(name, _)| name.as_str());
         }
-        self.resolve_alias(&normalized)
+        self.resolve_alias(name)
     }
 
     fn resolve_alias(&self, alias: &str) -> Option<&str> {
-        self.commands.iter().find_map(|(name, def)| {
-            def.spec
-                .aliases
-                .iter()
-                .any(|candidate| candidate.eq_ignore_ascii_case(alias))
-                .then_some(name.as_str())
-        })
+        self.commands
+            .iter()
+            .find_map(|(name, def)| def.spec.aliases.contains(&alias).then_some(name.as_str()))
     }
 }
 
@@ -165,9 +176,12 @@ mod tests {
         );
 
         assert!(registry.get("changelevel").is_none());
-        assert!(registry.get("LOADMAP").is_some());
+        assert!(registry.get("LoadMap").is_some());
+        assert!(registry.get("LOADMAP").is_none());
+        assert!(registry.search("LOADMAP").is_some());
         assert!(!registry.contains("changelevel"));
-        assert!(registry.contains("LOADMAP"));
+        assert!(registry.contains("LoadMap"));
+        assert!(!registry.contains("LOADMAP"));
         assert_eq!(registry.command_names().collect::<Vec<_>>(), ["map"]);
     }
 

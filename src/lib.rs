@@ -78,7 +78,7 @@ pub use persistence::ConsolePersistence;
 pub use registry::ConsoleRegistry;
 pub use state::ConsoleState;
 
-pub use resource_properties::{ConsoleProperty, ConsolePropertyValue};
+pub use resource_properties::{ConsoleProperty, ConsolePropertyValue, ReflectConsolePropertyValue};
 
 pub(crate) use logging::ConsoleLogCapture;
 pub(crate) use model::ConsoleCommandQueue;
@@ -165,11 +165,6 @@ pub trait ConsoleAppExt {
     where
         R: Resource + Reflect + FromReflect + GetTypeRegistration + Typed;
 
-    /// Registers an application-specific reflected field type for resource properties.
-    fn register_console_property_value<T>(&mut self) -> &mut Self
-    where
-        T: ConsolePropertyValue + GetTypeRegistration;
-
     /// Register a reflected Bevy state for the built-in `state` command.
     ///
     /// Call this after [`bevy::state::app::AppExtStates::init_state`].
@@ -198,14 +193,6 @@ impl ConsoleAppExt for App {
         R: Resource + Reflect + FromReflect + GetTypeRegistration + Typed,
     {
         resource_properties::register_resource::<R>(self);
-        self
-    }
-
-    fn register_console_property_value<T>(&mut self) -> &mut Self
-    where
-        T: ConsolePropertyValue + GetTypeRegistration,
-    {
-        resource_properties::register_property_value::<T>(self);
         self
     }
 

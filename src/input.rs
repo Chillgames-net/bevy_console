@@ -571,11 +571,11 @@ mod tests {
         let mut app = command_test_app(BuiltinCommands::default());
         app.world_mut()
             .resource_mut::<ConsoleCommandQueue>()
-            .push(ConsoleRequest::new(r#"EcHo "hello world" two"#));
+            .push(ConsoleRequest::new(r#"echo "hello world" two"#));
         execute_pending_commands(app.world_mut());
 
         let lines = app.world().resource::<ConsoleBuffer>().lines();
-        assert_eq!(lines[0].text, r#"> EcHo "hello world" two"#);
+        assert_eq!(lines[0].text, r#"> echo "hello world" two"#);
         assert_eq!(lines[1].text, "hello world|two");
 
         app.world_mut()
@@ -585,6 +585,21 @@ mod tests {
         let lines = app.world().resource::<ConsoleBuffer>().lines();
         assert_eq!(lines[3].level, ConsoleLevel::Info);
         assert_eq!(lines[4].level, ConsoleLevel::Warn);
+    }
+
+    #[test]
+    fn submitted_command_names_are_case_sensitive() {
+        let mut app = command_test_app(BuiltinCommands::default());
+        app.world_mut()
+            .resource_mut::<ConsoleCommandQueue>()
+            .push(ConsoleRequest::new("EcHo hello"));
+
+        execute_pending_commands(app.world_mut());
+
+        let lines = app.world().resource::<ConsoleBuffer>().lines();
+        assert_eq!(lines[0].text, "> EcHo hello");
+        assert_eq!(lines[1].text, "Unknown command: EcHo");
+        assert_eq!(lines[1].level, ConsoleLevel::Error);
     }
 
     #[test]
@@ -674,6 +689,32 @@ mod tests {
         let lines = app.world().resource::<ConsoleBuffer>().lines();
         assert_eq!(lines[0].text, "> echo hello world");
         assert_eq!(lines[1].text, "hello|world");
+    }
+
+    #[test]
+    fn submitted_runtime_aliases_are_case_sensitive() {
+        let mut app = command_test_app(BuiltinCommands::default());
+        app.world_mut()
+            .resource_mut::<ConsoleAliases>()
+            .set("SayHi", "echo hello");
+        app.world_mut()
+            .resource_mut::<ConsoleCommandQueue>()
+            .push(ConsoleRequest::new("sayhi"));
+
+        execute_pending_commands(app.world_mut());
+
+        let lines = app.world().resource::<ConsoleBuffer>().lines();
+        assert_eq!(lines[1].text, "Unknown command: sayhi");
+        assert_eq!(
+            app.world().resource::<ConsoleAliases>().get("SayHi"),
+            Some("echo hello")
+        );
+        assert!(
+            app.world()
+                .resource::<ConsoleAliases>()
+                .get("sayhi")
+                .is_none()
+        );
     }
 
     #[test]

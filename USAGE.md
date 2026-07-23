@@ -92,6 +92,11 @@ or argument candidate; Up/Down selects candidates or command history. When
 there are more candidates than `ConsoleConfig::max_suggestions`, navigation
 continues through additional suggestion pages.
 
+Completion search is case-insensitive, but submitted command names, aliases,
+built-in operations, reflected property names, and reflected state names and
+variants are case-sensitive. Accept a completion to insert its registered
+capitalization.
+
 ## Console controls
 
 Press Enter to run the current command. Tab accepts the selected completion,
@@ -140,15 +145,41 @@ same short type path, use their full reflected type paths to disambiguate them.
 `add` and `sub` work with numeric properties; integer overflow is reported as a
 console error.
 
-All reflected fields with a registered value adapter are exposed automatically.
+All reflected fields with value-adapter type data are exposed automatically.
 Field documentation comments provide completion and `res get` help. Use a
 reflected `ConsoleProperty` attribute only for read-only, name, or help
 overrides. Built-in adapters support booleans, all primitive integers and
 floats, and `String`.
 
-For an application-specific reflected field type, implement
-`ConsolePropertyValue` and call
-`register_console_property_value::<T>()` before `add_console_resource`.
+For an application-specific field type, implement `ConsolePropertyValue` and
+attach its adapter through Bevy reflection:
+
+```rust
+use bevy::prelude::*;
+use chill_bevy_console::{
+    ConsolePropertyValue, ReflectConsolePropertyValue,
+};
+
+#[derive(Reflect)]
+#[reflect(ConsolePropertyValue)]
+struct Port(u16);
+
+impl ConsolePropertyValue for Port {
+    fn parse_console_value(input: &str) -> Result<Self, String> {
+        input
+            .parse()
+            .map(Self)
+            .map_err(|_| "expected a port number".into())
+    }
+
+    fn format_console_value(&self) -> String {
+        self.0.to_string()
+    }
+}
+```
+
+`add_console_resource::<R>()` registers reflected field dependencies, including
+this adapter. No separate app registration or registration order is required.
 
 ## Runtime aliases
 

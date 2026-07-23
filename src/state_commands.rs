@@ -73,9 +73,11 @@ impl ConsoleStates {
 
         for index in 0..self.states.len() {
             let short_name = self.states[index].short_name;
-            let has_collision = self.states.iter().enumerate().any(|(other, state)| {
-                other != index && state.short_name.eq_ignore_ascii_case(short_name)
-            });
+            let has_collision = self
+                .states
+                .iter()
+                .enumerate()
+                .any(|(other, state)| other != index && state.short_name == short_name);
             self.states[index].name = if has_collision {
                 self.states[index].type_path
             } else {
@@ -87,20 +89,28 @@ impl ConsoleStates {
             assert!(
                 !self.states[..index]
                     .iter()
-                    .any(|other| other.name.eq_ignore_ascii_case(state.name)),
+                    .any(|other| other.name == state.name),
                 "console state name `{}` is ambiguous even when using its full type path",
                 state.name
             );
         }
     }
 
-    fn find(&self, name: &str) -> Option<ReflectedState> {
+    fn get(&self, name: &str) -> Option<ReflectedState> {
         self.states
             .iter()
-            .find(|state| {
-                state.name.eq_ignore_ascii_case(name) || state.type_path.eq_ignore_ascii_case(name)
-            })
+            .find(|state| state.name == name || state.type_path == name)
             .cloned()
+    }
+
+    fn search(&self, name: &str) -> Option<ReflectedState> {
+        self.get(name).or_else(|| {
+            let mut matches = self.states.iter().filter(|state| {
+                state.name.eq_ignore_ascii_case(name) || state.type_path.eq_ignore_ascii_case(name)
+            });
+            let state = matches.next()?;
+            matches.next().is_none().then(|| state.clone())
+        })
     }
 
     fn iter(&self) -> impl Iterator<Item = &ReflectedState> {
@@ -136,7 +146,7 @@ impl ReflectedState {
             .enum_info()
             .variant_names()
             .iter()
-            .find(|variant| variant.eq_ignore_ascii_case(input))
+            .find(|variant| **variant == input)
         else {
             return Err(format!(
                 "expected one of: {}",
@@ -222,14 +232,14 @@ fn state_command(world: &mut World, args: Args) -> ConsoleResult {
     };
     let Some(state) = world
         .get_resource::<ConsoleStates>()
-        .and_then(|states| states.find(name))
+        .and_then(|states| states.get(name))
     else {
         return ConsoleResult::error(format!(
             "Unknown reflected state: {name}. Call add_console_state::<S>() to expose it"
         ));
     };
 
-    match operation.to_ascii_lowercase().as_str() {
+    match operation {
         "get" if args.len() == 2 => match state.current_value(world) {
             Ok(value) => ConsoleResult::info(format!("{} = {value}", state.name)),
             Err(error) => ConsoleResult::error(error),
@@ -273,7 +283,7 @@ fn complete_state(
             let Some(name) = request.argument(1) else {
                 return Vec::new();
             };
-            let Some(state) = states.find(name) else {
+            let Some(state) = states.search(name) else {
                 return Vec::new();
             };
             state
@@ -363,7 +373,7 @@ mod tests {
 
         app.world_mut()
             .resource_mut::<ConsoleCommandQueue>()
-            .push(ConsoleRequest::new("StAtE GeT gamestate"));
+            .push(ConsoleRequest::new(format!("state get {}", state_name())));
         crate::execution::execute_pending_commands(app.world_mut());
         assert_eq!(
             app.world()
@@ -377,13 +387,40 @@ mod tests {
         app.world_mut()
             .resource_mut::<ConsoleCommandQueue>()
             .push(ConsoleRequest::new(format!(
-                "state set {} pLaYiNg",
-                state_name().to_ascii_lowercase()
+                "state set {} Playing",
+                state_name()
             )));
         crate::execution::execute_pending_commands(app.world_mut());
         assert!(matches!(
             app.world().resource::<NextState<GameState>>(),
             NextState::Pending(GameState::Playing)
+        ));
+    }
+
+    #[test]
+    fn submitted_state_syntax_is_case_sensitive() {
+        let mut app = app();
+        for command in [
+            format!("state GET {}", state_name()),
+            format!("state get {}", state_name().to_ascii_lowercase()),
+            format!("state set {} playing", state_name()),
+        ] {
+            app.world_mut()
+                .resource_mut::<ConsoleCommandQueue>()
+                .push(ConsoleRequest::new(command));
+            crate::execution::execute_pending_commands(app.world_mut());
+            assert_eq!(
+                app.world()
+                    .resource::<ConsoleBuffer>()
+                    .last_line()
+                    .unwrap()
+                    .level,
+                crate::ConsoleLevel::Error
+            );
+        }
+        assert!(matches!(
+            app.world().resource::<NextState<GameState>>(),
+            NextState::Unchanged
         ));
     }
 
@@ -397,8 +434,9 @@ mod tests {
             .register_type_mutable_state::<InspectorState>();
 
         let states = app.world().resource::<ConsoleStates>();
-        assert!(states.find("gamestate").is_some());
-        assert!(states.find("InspectorState").is_none());
+        assert!(states.get("gamestate").is_none());
+        assert!(states.search("gamestate").is_some());
+        assert!(states.get("InspectorState").is_none());
     }
 
     #[test]
@@ -407,7 +445,7 @@ mod tests {
         app.world_mut()
             .resource_mut::<ConsoleCommandQueue>()
             .push(ConsoleRequest::new(format!(
-                "state set {} loading",
+                "state set {} Loading",
                 state_name()
             )));
         crate::execution::execute_pending_commands(app.world_mut());
@@ -423,6 +461,32 @@ mod tests {
                 .level,
             crate::ConsoleLevel::Error
         );
+    }
+
+    #[test]
+    fn state_command_rejects_extra_arguments() {
+        let mut app = app();
+        for command in [
+            format!("state get {} ignored", state_name()),
+            format!("state set {} Playing ignored", state_name()),
+        ] {
+            app.world_mut()
+                .resource_mut::<ConsoleCommandQueue>()
+                .push(ConsoleRequest::new(command));
+            crate::execution::execute_pending_commands(app.world_mut());
+            assert_eq!(
+                app.world()
+                    .resource::<ConsoleBuffer>()
+                    .last_line()
+                    .unwrap()
+                    .level,
+                crate::ConsoleLevel::Error
+            );
+        }
+        assert!(matches!(
+            app.world().resource::<NextState<GameState>>(),
+            NextState::Unchanged
+        ));
     }
 
     #[test]

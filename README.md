@@ -63,7 +63,6 @@ Import `ConsoleAppExt` to add these methods to Bevy's `App`. Each returns
 |--------|---------|
 | `add_console_command(command)` | Register a `ConsoleCommand` with aliases, argument metadata, structured help, and optional dynamic completion. |
 | `add_console_resource::<R>()` | Register `R`'s supported reflected fields for the built-in `res` command. |
-| `register_console_property_value::<T>()` | Register an application-specific reflected field type for the `res` command. |
 | `add_console_state::<S>()` | Register a reflected Bevy state for the built-in `state` command. |
 
 See [USAGE.md](USAGE.md) for adding commands, custom config, persisting history, blocking gameplay input, and built-in commands. Runnable examples live in [`examples/`](examples) — try `cargo run --example basic`.

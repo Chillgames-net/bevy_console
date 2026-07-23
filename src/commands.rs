@@ -67,11 +67,7 @@ fn clear_cmd(
 ) -> ConsoleResult {
     buffer.clear();
     #[cfg(feature = "persistent-history")]
-    if args.len() == 1
-        && args
-            .get(0)
-            .is_some_and(|arg| arg.eq_ignore_ascii_case("--history"))
-    {
+    if args.len() == 1 && args.get(0).is_some_and(|arg| arg == "--history") {
         state.clear_command_history();
     }
     #[cfg(not(feature = "persistent-history"))]
@@ -116,7 +112,7 @@ fn alias_cmd(
     let Some(operation) = args.get(0) else {
         return ConsoleResult::error("Usage: alias <list|get|set|remove> [name] [command...]");
     };
-    match operation.to_ascii_lowercase().as_str() {
+    match operation {
         "list" if args.len() == 1 => {
             let aliases = aliases
                 .iter()
@@ -215,7 +211,7 @@ fn bind_cmd(In(args): CommandArgs, mut binds: ResMut<ConsoleBinds>) -> ConsoleRe
     let Some(operation) = args.get(0) else {
         return ConsoleResult::error("Usage: bind <list|get|set|remove> [key] [command...]");
     };
-    match operation.to_ascii_lowercase().as_str() {
+    match operation {
         "list" if args.len() == 1 => {
             let binds = binds
                 .iter()
