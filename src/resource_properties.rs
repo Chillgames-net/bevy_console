@@ -367,19 +367,24 @@ where
 }
 
 fn register_builtin_property_values(app: &mut App) {
-    let already_registered = app
-        .world()
-        .resource::<AppTypeRegistry>()
-        .read()
-        .get_type_data::<ReflectConsolePropertyValue>(TypeId::of::<bool>())
-        .is_some();
-    if already_registered {
-        return;
+    fn register_if_missing<T>(app: &mut App)
+    where
+        T: ConsolePropertyValue + GetTypeRegistration,
+    {
+        let already_registered = app
+            .world()
+            .resource::<AppTypeRegistry>()
+            .read()
+            .get_type_data::<ReflectConsolePropertyValue>(TypeId::of::<T>())
+            .is_some();
+        if !already_registered {
+            register_property_value::<T>(app);
+        }
     }
 
     macro_rules! register {
         ($($type:ty),* $(,)?) => {
-            $(register_property_value::<$type>(app);)*
+            $(register_if_missing::<$type>(app);)*
         };
     }
     register!(
@@ -953,6 +958,32 @@ mod tests {
             "7"
         );
         assert_eq!(app.world().resource::<CustomSettings>().value.0, 7);
+    }
+
+    #[test]
+    fn partial_builtin_adapter_registry_is_completed() {
+        let mut app = App::new();
+        register_property_value::<bool>(&mut app);
+        {
+            let registry = app.world().resource::<AppTypeRegistry>().read();
+            assert!(
+                registry
+                    .get_type_data::<ReflectConsolePropertyValue>(TypeId::of::<bool>())
+                    .is_some()
+            );
+            assert!(
+                registry
+                    .get_type_data::<ReflectConsolePropertyValue>(TypeId::of::<u32>())
+                    .is_none()
+            );
+        }
+
+        app.add_console_resource::<DebugSettings>();
+
+        let resources = app.world().resource::<ConsoleResources>();
+        assert!(resources.get("DebugSettings.draw_colliders").is_some());
+        assert!(resources.get("DebugSettings.max_fps").is_some());
+        assert!(resources.get("DebugSettings.label").is_some());
     }
 
     #[test]
