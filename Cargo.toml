@@ -4,7 +4,7 @@ resolver = "3"
 
 [package]
 name = "chill_bevy_console"
-version = "0.3.0"
+version = "0.3.1"
 edition = "2024"
 rust-version = "1.95"
 description = "A configurable developer console plugin for Bevy games"
@@ -45,11 +45,12 @@ bevy = { version = "0.19", default-features = false, features = [
     "keyboard",
     "mouse",
     "bevy_log",
+    "bevy_state",
     "bevy_ui_widgets",
     "ui_picking",
     "system_clipboard",
 ] }
-chill_bevy_console_derive = { version = "0.3.0", path = "derive", optional = true }
+chill_bevy_console_derive = { version = "0.3.1", path = "derive", optional = true }
 
 # Examples use DefaultPlugins, which needs bevy's default features (winit, etc.).
 [dev-dependencies]
