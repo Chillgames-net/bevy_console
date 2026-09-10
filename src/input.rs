@@ -211,9 +211,14 @@ pub(crate) fn capture_console_input(
                     continue;
                 }
                 let search_end = state.cmd_history_index.unwrap_or(state.cmd_history.len());
+                let prefix = if state.cmd_history_index.is_some() {
+                    &state.cmd_history_draft
+                } else {
+                    &state.input
+                };
                 let previous = state.cmd_history[..search_end]
                     .iter()
-                    .rposition(|command| command != &state.input);
+                    .rposition(|command| command.starts_with(prefix) && command != &state.input);
                 if let Some(idx) = previous {
                     if state.cmd_history_index.is_none() {
                         // Start browsing: save the live input as a draft.
@@ -238,7 +243,10 @@ pub(crate) fn capture_console_input(
                     Some(i) => {
                         let next = state.cmd_history[i + 1..]
                             .iter()
-                            .position(|command| command != &state.input)
+                            .position(|command| {
+                                command.starts_with(&state.cmd_history_draft)
+                                    && command != &state.input
+                            })
                             .map(|offset| i + 1 + offset);
                         if let Some(idx) = next {
                             state.cmd_history_index = Some(idx);
@@ -520,6 +528,86 @@ mod tests {
             app.update();
             assert_eq!(app.world().resource::<ConsoleState>().input, expected);
         }
+    }
+
+    #[test]
+    fn history_navigation_matches_the_original_prefix() {
+        let mut app = App::new();
+        app.insert_resource(ConsoleConfig::default())
+            .insert_resource(BuiltinCommands::default())
+            .insert_resource(ConsoleState {
+                open: true,
+                input: "echo ".into(),
+                cmd_history: vec![
+                    "help".into(),
+                    "echo older".into(),
+                    "status".into(),
+                    "echo newer".into(),
+                    "echo newer".into(),
+                    "help echo".into(),
+                ],
+                ..default()
+            })
+            .init_resource::<ButtonInput<KeyCode>>()
+            .init_resource::<ConsoleCommandQueue>()
+            .add_message::<KeyboardInput>()
+            .add_systems(Update, capture_console_input);
+        let input = app
+            .world_mut()
+            .spawn((ConsoleInput, EditableText::new("echo ")))
+            .id();
+
+        for (key, expected) in [
+            (Key::ArrowUp, "echo newer"),
+            (Key::ArrowUp, "echo older"),
+            (Key::ArrowUp, "echo older"),
+            (Key::ArrowDown, "echo newer"),
+            (Key::ArrowDown, "echo "),
+            (Key::ArrowUp, "echo newer"),
+        ] {
+            app.world_mut().write_message(KeyboardInput {
+                key_code: if key == Key::ArrowUp {
+                    KeyCode::ArrowUp
+                } else {
+                    KeyCode::ArrowDown
+                },
+                logical_key: key,
+                state: ButtonState::Pressed,
+                text: None,
+                repeat: false,
+                window: Entity::PLACEHOLDER,
+            });
+            app.update();
+            assert_eq!(app.world().resource::<ConsoleState>().input, expected);
+            assert_eq!(
+                app.world().get::<EditableText>(input).unwrap().value(),
+                expected
+            );
+        }
+
+        // Editing a recalled command starts a fresh search; no match leaves it intact.
+        app.add_systems(
+            Update,
+            super::sync_console_input.before(capture_console_input),
+        );
+        app.update();
+        crate::editor::set_editable_text(
+            &mut app.world_mut().get_mut::<EditableText>(input).unwrap(),
+            "missing",
+            7,
+        );
+        app.world_mut().write_message(KeyboardInput {
+            key_code: KeyCode::ArrowUp,
+            logical_key: Key::ArrowUp,
+            state: ButtonState::Pressed,
+            text: None,
+            repeat: false,
+            window: Entity::PLACEHOLDER,
+        });
+        app.update();
+        let state = app.world().resource::<ConsoleState>();
+        assert_eq!(state.input, "missing");
+        assert_eq!(state.cmd_history_index, None);
     }
 
     #[test]
