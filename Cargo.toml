@@ -50,7 +50,7 @@ bevy = { version = "0.19", default-features = false, features = [
     "ui_picking",
     "system_clipboard",
 ] }
-chill_bevy_console_derive = { version = "0.3.1", path = "derive", optional = true }
+chill_bevy_console_derive = { version = "0.3.2", path = "derive", optional = true }
 
 # Examples use DefaultPlugins, which needs bevy's default features (winit, etc.).
 [dev-dependencies]
