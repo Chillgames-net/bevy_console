@@ -46,9 +46,11 @@ impl ConsoleState {
         &self.input
     }
 
-    /// Replaces the console input and refreshes completion suggestions.
+    /// Replaces the console input, exits history browsing, and refreshes suggestions.
     pub fn set_input(&mut self, input: impl Into<String>) {
         self.input = input.into();
+        self.cmd_history_index = None;
+        self.cmd_history_draft.clear();
         self.completion_cursor = None;
         self.mark_input_changed();
     }
@@ -58,9 +60,7 @@ impl ConsoleState {
     }
 
     pub(crate) fn clear_input(&mut self) {
-        self.input.clear();
-        self.completion_cursor = None;
-        self.mark_input_changed();
+        self.set_input(String::new());
     }
 
     pub(crate) fn recall_history_matching_input(&mut self) {
@@ -399,6 +399,27 @@ mod tests {
         state.cmd_history_index = Some(index);
 
         assert_eq!(state.selected_history_line_id(), Some(42));
+    }
+
+    #[test]
+    fn replacing_or_clearing_input_exits_history_browsing() {
+        for clear in [false, true] {
+            let mut state = ConsoleState {
+                input: "echo recalled".into(),
+                cmd_history_index: Some(0),
+                cmd_history_draft: "echo ".into(),
+                ..ConsoleState::default()
+            };
+            if clear {
+                state.clear_input();
+            } else {
+                state.set_input("help");
+            }
+            assert_eq!(state.input(), if clear { "" } else { "help" });
+            assert_eq!(state.cmd_history_index, None);
+            assert!(state.cmd_history_draft.is_empty());
+            assert!(state.completion_dirty);
+        }
     }
 
     #[test]

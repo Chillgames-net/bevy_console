@@ -98,6 +98,13 @@ Press Enter to run the current command. Tab accepts the selected completion,
 and Up/Down navigate completions or command history. On touch devices, tap a
 completion to accept it; swipe up with two fingers to dismiss the console.
 
+From the first completion suggestion, Up recalls commands starting with the text
+you entered (case-sensitive). Keep pressing Up/Down to browse matching commands;
+Down past the newest match restores your original text. Empty input browses all
+history, and an unmatched prefix leaves your input unchanged.
+Set `ConsoleConfig::history_prefix_search` to `false` to browse all history
+regardless of the entered text. It defaults to `true`.
+
 ## Resource properties
 
 Enable the opt-in `resource-properties` feature to expose selected fields on a

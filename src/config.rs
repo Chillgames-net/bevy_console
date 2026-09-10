@@ -181,6 +181,9 @@ pub struct ConsoleConfig {
     pub max_history_lines: usize,
     /// Maximum submitted commands kept for Up/Down recall.
     pub max_command_history: usize,
+    /// Restrict Up/Down recall to commands starting with the original input.
+    /// Matching is case-sensitive. Defaults to `true`.
+    pub history_prefix_search: bool,
     /// Maximum completion rows presented on each suggestion page.
     pub max_suggestions: usize,
     /// Z-index applied to the console overlay.
@@ -286,6 +289,7 @@ impl Default for ConsoleConfig {
             close_on_empty_submit: false,
             max_history_lines: 256,
             max_command_history: 500,
+            history_prefix_search: true,
             max_suggestions: 5,
             z_index: i32::MAX,
         }
