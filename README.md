@@ -33,6 +33,15 @@ Optional features:
 
 ## Usage
 
+### Updating to 0.3.2
+
+`ConsoleConfig` adds `history_prefix_search`, enabled by default. Exhaustive
+struct literals must add `history_prefix_search: true` (or `false` to keep
+unfiltered history recall). Configurations using `..default()` or a theme
+preset need no source changes.
+
+### Example
+
 ```rust
 use bevy::prelude::*;
 use chill_bevy_console::{ChillConsole, ConsoleAppExt, CommandArgs, ConsoleCommand, console_closed};
