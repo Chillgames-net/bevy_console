@@ -76,8 +76,6 @@ pub(crate) fn sync_console_input(
             set_editable_text(&mut input, &state.input, state.input.len());
         } else {
             state.set_input(edited);
-            state.cmd_history_index = None;
-            state.cmd_history_draft.clear();
         }
     }
     if input.is_changed() {
@@ -306,13 +304,14 @@ fn submit_console_input(
         // output and therefore does not trigger a later history UI refresh.
         scroll_pos.y = f32::MAX;
     }
-    state.cmd_history_index = None;
-    state.cmd_history_draft.clear();
 }
 
 fn sync_history_selection(state: &mut ConsoleState, input: &mut EditableText, value: String) {
     set_editable_text(input, &value, value.len());
-    state.set_input(value);
+    // Recalling history preserves the browsing index and original search prefix.
+    state.input = value;
+    state.completion_cursor = None;
+    state.mark_input_changed();
 }
 
 fn discard_vertical_cursor_moves(input: &mut EditableText) {
