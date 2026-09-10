@@ -214,9 +214,10 @@ pub(crate) fn capture_console_input(
                 } else {
                     &state.input
                 };
-                let previous = state.cmd_history[..search_end]
-                    .iter()
-                    .rposition(|command| command.starts_with(prefix) && command != &state.input);
+                let previous = state.cmd_history[..search_end].iter().rposition(|command| {
+                    (!settings.config.history_prefix_search || command.starts_with(prefix))
+                        && command != &state.input
+                });
                 if let Some(idx) = previous {
                     if state.cmd_history_index.is_none() {
                         // Start browsing: save the live input as a draft.
@@ -242,7 +243,8 @@ pub(crate) fn capture_console_input(
                         let next = state.cmd_history[i + 1..]
                             .iter()
                             .position(|command| {
-                                command.starts_with(&state.cmd_history_draft)
+                                (!settings.config.history_prefix_search
+                                    || command.starts_with(&state.cmd_history_draft))
                                     && command != &state.input
                             })
                             .map(|offset| i + 1 + offset);
@@ -492,11 +494,21 @@ mod tests {
 
     #[test]
     fn history_navigation_skips_duplicate_entries_in_both_directions() {
-        let mut app = App::new();
-        app.insert_resource(ConsoleConfig::default())
+        for history_prefix_search in [true, false] {
+            let draft = if history_prefix_search {
+                ""
+            } else {
+                "unmatched"
+            };
+            let mut app = App::new();
+            app.insert_resource(ConsoleConfig {
+                history_prefix_search,
+                ..default()
+            })
             .insert_resource(BuiltinCommands::default())
             .insert_resource(ConsoleState {
                 open: true,
+                input: draft.into(),
                 cmd_history: vec!["status".into(), "help".into(), "help".into()],
                 ..default()
             })
@@ -504,28 +516,30 @@ mod tests {
             .init_resource::<ConsoleCommandQueue>()
             .add_message::<KeyboardInput>()
             .add_systems(Update, capture_console_input);
-        app.world_mut().spawn((ConsoleInput, EditableText::new("")));
+            app.world_mut()
+                .spawn((ConsoleInput, EditableText::new(draft)));
 
-        for (key, expected) in [
-            (Key::ArrowUp, "help"),
-            (Key::ArrowUp, "status"),
-            (Key::ArrowDown, "help"),
-            (Key::ArrowDown, ""),
-        ] {
-            app.world_mut().write_message(KeyboardInput {
-                key_code: match key {
-                    Key::ArrowUp => KeyCode::ArrowUp,
-                    Key::ArrowDown => KeyCode::ArrowDown,
-                    _ => unreachable!(),
-                },
-                logical_key: key,
-                state: ButtonState::Pressed,
-                text: None,
-                repeat: false,
-                window: Entity::PLACEHOLDER,
-            });
-            app.update();
-            assert_eq!(app.world().resource::<ConsoleState>().input, expected);
+            for (key, expected) in [
+                (Key::ArrowUp, "help"),
+                (Key::ArrowUp, "status"),
+                (Key::ArrowDown, "help"),
+                (Key::ArrowDown, draft),
+            ] {
+                app.world_mut().write_message(KeyboardInput {
+                    key_code: match key {
+                        Key::ArrowUp => KeyCode::ArrowUp,
+                        Key::ArrowDown => KeyCode::ArrowDown,
+                        _ => unreachable!(),
+                    },
+                    logical_key: key,
+                    state: ButtonState::Pressed,
+                    text: None,
+                    repeat: false,
+                    window: Entity::PLACEHOLDER,
+                });
+                app.update();
+                assert_eq!(app.world().resource::<ConsoleState>().input, expected);
+            }
         }
     }
 
