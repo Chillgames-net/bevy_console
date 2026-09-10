@@ -96,7 +96,7 @@ extern crate self as chill_bevy_console;
 
 #[cfg(feature = "embedded-font")]
 use bevy::asset::uuid_handle;
-use bevy::input_focus::{InputDispatchPlugin, InputFocusPlugin};
+use bevy::input_focus::{InputDispatchPlugin, InputFocusPlugin, InputFocusSystems};
 use bevy::prelude::*;
 use bevy::reflect::{FromReflect, GetTypeRegistration, Typed};
 use bevy::state::state::FreelyMutableState;
@@ -325,6 +325,14 @@ impl Plugin for ChillConsole {
             .add_message::<ConsoleCommandExecuted>()
             .add_plugins(commands::plugin)
             .add_plugins(state_commands::plugin)
+            .add_systems(
+                PreUpdate,
+                focus_console_input
+                    .run_if(console_open)
+                    .after(bevy::input::InputSystems)
+                    .after(bevy::ui::UiSystems::Focus)
+                    .before(InputFocusSystems::Dispatch),
+            )
             .add_systems(
                 Update,
                 (

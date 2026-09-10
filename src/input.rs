@@ -46,8 +46,8 @@ pub(crate) fn handle_toggle_key(
 
 /// Keeps keyboard focus on the console editor while the console is open.
 ///
-/// `AutoFocus` handles the initial spawn, but focus can later move because Tab
-/// and other UI interactions are dispatched before the console handles them.
+/// Run before keyboard dispatch so recovering focus does not lose a keystroke,
+/// and again in Update after spawning the editor or handling UI navigation.
 pub(crate) fn focus_console_input(
     input_q: Query<Entity, With<ConsoleInput>>,
     mut input_focus: ResMut<InputFocus>,
@@ -348,6 +348,50 @@ mod tests {
     use bevy::input::keyboard::{Key, KeyboardInput};
     use bevy::prelude::*;
     use bevy::text::{EditableText, TextEdit};
+
+    #[test]
+    fn typing_recovers_console_focus_before_keyboard_dispatch() {
+        use bevy::input_focus::{FocusCause, InputFocus};
+
+        let mut app = App::new();
+        app.add_plugins(bevy::input::InputPlugin)
+            .init_resource::<Assets<Font>>()
+            .add_message::<bevy::window::Ime>()
+            .add_plugins(crate::ChillConsole::default());
+        let window = app.world_mut().spawn(bevy::window::PrimaryWindow).id();
+        let input = app
+            .world_mut()
+            .spawn((ConsoleInput, EditableText::default()))
+            .id();
+        let other_input = app.world_mut().spawn(EditableText::default()).id();
+
+        for open in [true, false] {
+            app.world_mut().resource_mut::<ConsoleState>().open = open;
+            app.world_mut()
+                .resource_mut::<InputFocus>()
+                .set(other_input, FocusCause::Pressed);
+            app.world_mut().write_message(KeyboardInput {
+                key_code: KeyCode::KeyA,
+                logical_key: Key::Character("a".into()),
+                state: ButtonState::Pressed,
+                text: Some("a".into()),
+                repeat: false,
+                window,
+            });
+
+            app.world_mut().run_schedule(PreUpdate);
+
+            let target = if open { input } else { other_input };
+            assert_eq!(app.world().resource::<InputFocus>().get(), Some(target));
+            let mut editor = app.world_mut().get_mut::<EditableText>(target).unwrap();
+            assert!(
+                matches!(editor.pending_edits.as_slice(), [TextEdit::Insert(text)] if text == "a"),
+                "open={open}: {:?}",
+                editor.pending_edits
+            );
+            editor.pending_edits.clear();
+        }
+    }
 
     fn echo(In(args): CommandArgs) -> String {
         args.join("|")
