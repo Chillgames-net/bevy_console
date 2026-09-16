@@ -5,7 +5,7 @@ use crate::ui::ConsoleInput;
 use crate::{ConsoleBinds, ConsoleCommandQueue, ConsoleRequest};
 use bevy::ecs::system::SystemParam;
 use bevy::input::ButtonState;
-use bevy::input::keyboard::{Key, KeyboardInput};
+use bevy::input::keyboard::{Key, KeyboardFocusLost, KeyboardInput};
 use bevy::input_focus::{FocusCause, InputFocus};
 use bevy::prelude::*;
 use bevy::text::{EditableText, TextEdit};
@@ -24,6 +24,18 @@ pub(crate) fn console_open(state: Option<Res<ConsoleState>>) -> bool {
 }
 
 // ── Systems ───────────────────────────────────────────────────────────────────
+
+/// Bevy 0.19 releases physical keys on focus loss, but leaves logical keys held.
+/// EditableText reads logical modifiers, so a missed release can block all typing.
+pub(crate) fn release_logical_keys_on_focus_loss(
+    mut focus_lost: MessageReader<KeyboardFocusLost>,
+    mut keys: ResMut<ButtonInput<Key>>,
+) {
+    if !focus_lost.is_empty() {
+        keys.release_all();
+        focus_lost.clear();
+    }
+}
 
 /// Handles the toggle key and the force-close-when-disabled case.
 /// Only mutates `state.open` — UI sync is handled by [`sync_console_ui`].
@@ -357,6 +369,163 @@ mod tests {
     use bevy::input::keyboard::{Key, KeyboardInput};
     use bevy::prelude::*;
     use bevy::text::{EditableText, TextEdit};
+
+    #[test]
+    fn recalled_command_remains_editable_after_window_focus_loss() {
+        let mut app = App::new();
+        app.add_plugins((
+            bevy::input::InputPlugin,
+            bevy::input_focus::InputFocusPlugin,
+            bevy::input_focus::InputDispatchPlugin,
+            bevy::ui_widgets::EditableTextInputPlugin,
+        ))
+        .add_message::<bevy::window::Ime>()
+        .add_message::<bevy::picking::prelude::Pointer<bevy::picking::prelude::Release>>()
+        .init_resource::<UiScale>()
+        .init_resource::<bevy::text::FontCx>()
+        .init_resource::<bevy::text::LayoutCx>()
+        .init_resource::<Assets<Font>>()
+        .init_resource::<bevy::clipboard::Clipboard>()
+        .init_resource::<ConsoleConfig>()
+        .init_resource::<BuiltinCommands>()
+        .init_resource::<ConsoleCommandQueue>()
+        .insert_resource(ConsoleState {
+            open: true,
+            cmd_history: vec!["help".into()],
+            ..default()
+        })
+        .add_systems(
+            PreUpdate,
+            super::release_logical_keys_on_focus_loss
+                .after(bevy::input::InputSystems)
+                .before(bevy::input_focus::InputFocusSystems::Dispatch),
+        )
+        .add_systems(
+            Update,
+            (super::sync_console_input, capture_console_input).chain(),
+        )
+        .add_systems(
+            PostUpdate,
+            (
+                bevy::text::load_font_assets_into_font_collection,
+                bevy::text::apply_text_edits,
+                |mut q: Query<&mut EditableText>,
+                 mut fonts: ResMut<bevy::text::FontCx>,
+                 mut layout: ResMut<bevy::text::LayoutCx>| {
+                    for mut e in &mut q {
+                        e.editor_mut().refresh_layout(&mut fonts, &mut layout.0);
+                    }
+                },
+            )
+                .chain(),
+        );
+        app.world_mut()
+            .resource_mut::<Assets<Font>>()
+            .add(Font::from_bytes(
+                include_bytes!("../assets/UbuntuMono-R.ttf").to_vec(),
+            ));
+        let window = app.world_mut().spawn(bevy::window::PrimaryWindow).id();
+        let input = app
+            .world_mut()
+            .spawn((
+                ConsoleInput,
+                EditableText::default(),
+                bevy::input_focus::AutoFocus,
+            ))
+            .id();
+        app.update();
+        app.world_mut()
+            .resource_mut::<bevy::text::FontCx>()
+            .set_sans_serif_family("Ubuntu Mono")
+            .unwrap();
+        // Switching apps while a modifier is held can omit its key-release event.
+        app.world_mut().write_message(KeyboardInput {
+            key_code: KeyCode::SuperLeft,
+            logical_key: Key::Super,
+            state: ButtonState::Pressed,
+            text: None,
+            repeat: false,
+            window,
+        });
+        app.update();
+        app.world_mut()
+            .write_message(bevy::input::keyboard::KeyboardFocusLost);
+        app.update();
+        for (key_code, logical_key, text, expected) in [
+            (KeyCode::ArrowUp, Key::ArrowUp, None, "help"),
+            (KeyCode::Backspace, Key::Backspace, None, "hel"),
+            (
+                KeyCode::KeyX,
+                Key::Character("x".into()),
+                Some("x".into()),
+                "helx",
+            ),
+            (KeyCode::Backspace, Key::Backspace, None, "hel"),
+        ] {
+            app.world_mut().write_message(KeyboardInput {
+                key_code,
+                logical_key,
+                state: ButtonState::Pressed,
+                text,
+                repeat: false,
+                window,
+            });
+            app.update();
+            assert_eq!(
+                app.world()
+                    .get::<EditableText>(input)
+                    .unwrap()
+                    .value()
+                    .to_string(),
+                expected
+            );
+        }
+    }
+
+    #[test]
+    fn opening_and_reopening_console_focuses_its_input() {
+        use bevy::input_focus::{FocusCause, InputFocus};
+
+        let mut app = App::new();
+        app.add_plugins(bevy::input::InputPlugin)
+            .init_resource::<Assets<Font>>()
+            .init_resource::<Time<Real>>()
+            .add_message::<bevy::window::Ime>()
+            .add_plugins(crate::ChillConsole::default());
+        let other_input = app.world_mut().spawn(EditableText::default()).id();
+        let toggle_key = app.world().resource::<ConsoleConfig>().toggle_key;
+
+        // Exercise both opening paths, including reopening after the old editor despawns.
+        for use_toggle_key in [true, false, true] {
+            app.world_mut()
+                .resource_mut::<InputFocus>()
+                .set(other_input, FocusCause::Pressed);
+            if use_toggle_key {
+                app.world_mut()
+                    .resource_mut::<ButtonInput<KeyCode>>()
+                    .press(toggle_key);
+            } else {
+                app.world_mut().resource_mut::<ConsoleState>().open = true;
+            }
+
+            // Focus must be acquired in the opening frame, without another PreUpdate.
+            app.world_mut().run_schedule(Update);
+            let input = app
+                .world_mut()
+                .query_filtered::<Entity, With<ConsoleInput>>()
+                .single(app.world())
+                .unwrap();
+            assert!(app.world().resource::<ConsoleState>().open);
+            assert_eq!(app.world().resource::<InputFocus>().get(), Some(input));
+
+            app.world_mut()
+                .resource_mut::<ButtonInput<KeyCode>>()
+                .reset_all();
+            app.world_mut().resource_mut::<ConsoleState>().open = false;
+            app.world_mut().run_schedule(Update);
+            assert!(app.world().get_entity(input).is_err());
+        }
+    }
 
     #[test]
     fn typing_recovers_console_focus_before_keyboard_dispatch() {
