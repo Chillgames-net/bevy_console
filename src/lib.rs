@@ -116,7 +116,7 @@ use execution::{
 };
 use input::{
     capture_console_input, console_open, focus_console_input, handle_toggle_key,
-    queue_bound_commands, sync_console_input,
+    queue_bound_commands, release_logical_keys_on_focus_loss, sync_console_input,
 };
 use logging::drain_captured_logs;
 use scroll::scroll_console;
@@ -327,8 +327,10 @@ impl Plugin for ChillConsole {
             .add_plugins(state_commands::plugin)
             .add_systems(
                 PreUpdate,
-                focus_console_input
-                    .run_if(console_open)
+                (
+                    release_logical_keys_on_focus_loss,
+                    focus_console_input.run_if(console_open),
+                )
                     .after(bevy::input::InputSystems)
                     .after(bevy::ui::UiSystems::Focus)
                     .before(InputFocusSystems::Dispatch),
