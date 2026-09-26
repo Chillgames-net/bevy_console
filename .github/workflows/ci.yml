@@ -14,6 +14,20 @@ env:
   RUSTDOCFLAGS: -D warnings
 
 jobs:
+  ios:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios
+      - uses: Swatinem/rust-cache@v2
+      - name: Check iOS clipboard dependencies
+        run: |
+          cargo tree --locked --all-features --target aarch64-apple-ios -e normal,build --prefix none > ios-dependencies.txt
+          ! grep -E '^(arboard|wl-clipboard-rs|wayland[^ ]*) ' ios-dependencies.txt
+      - run: cargo build --lib --all-features --target aarch64-apple-ios --locked
+
   check:
     runs-on: ubuntu-latest
     steps:

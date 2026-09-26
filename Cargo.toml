@@ -4,7 +4,7 @@ resolver = "3"
 
 [package]
 name = "chill_bevy_console"
-version = "0.3.3"
+version = "0.3.4"
 edition = "2024"
 rust-version = "1.95"
 description = "A configurable developer console plugin for Bevy games"
@@ -48,9 +48,12 @@ bevy = { version = "0.19", default-features = false, features = [
     "bevy_state",
     "bevy_ui_widgets",
     "ui_picking",
-    "system_clipboard",
 ] }
 chill_bevy_console_derive = { version = "0.3.2", path = "derive", optional = true }
+
+# Mobile targets use Bevy's in-process clipboard fallback.
+[target.'cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))'.dependencies]
+bevy = { version = "0.19", default-features = false, features = ["system_clipboard"] }
 
 # Examples use DefaultPlugins, which needs bevy's default features (winit, etc.).
 [dev-dependencies]
