@@ -15,6 +15,7 @@ use bevy::ui::ScrollPosition;
 pub(crate) struct ConsoleInputSettings<'w> {
     config: Res<'w, ConsoleConfig>,
     builtin_commands: Res<'w, BuiltinCommands>,
+    focus: Option<Res<'w, InputFocus>>,
 }
 
 // ── Run conditions ────────────────────────────────────────────────────────────
@@ -25,7 +26,7 @@ pub(crate) fn console_open(state: Option<Res<ConsoleState>>) -> bool {
 
 // ── Systems ───────────────────────────────────────────────────────────────────
 
-/// Bevy 0.19 releases physical keys on focus loss, but leaves logical keys held.
+/// Bevy releases physical keys on focus loss, but leaves logical keys held.
 /// EditableText reads logical modifiers, so a missed release can block all typing.
 pub(crate) fn release_logical_keys_on_focus_loss(
     mut focus_lost: MessageReader<KeyboardFocusLost>,
@@ -56,14 +57,36 @@ pub(crate) fn handle_toggle_key(
     }
 }
 
-/// Keeps keyboard focus on the console editor while the console is open.
+/// Keeps command input focused, except while selecting and copying output.
 ///
 /// Run before keyboard dispatch so recovering focus does not lose a keystroke,
 /// and again in Update after spawning the editor or handling UI navigation.
 pub(crate) fn focus_console_input(
     input_q: Query<Entity, With<ConsoleInput>>,
+    history_q: Query<(), With<crate::ui::ConsoleHistoryText>>,
+    mut key_events: MessageReader<KeyboardInput>,
+    keys: Res<ButtonInput<KeyCode>>,
     mut input_focus: ResMut<InputFocus>,
 ) {
+    let typing = key_events.read().any(|event| {
+        event.state == ButtonState::Pressed
+            && (matches!(event.logical_key, Key::Enter | Key::Tab | Key::Escape)
+                || (matches!(event.logical_key, Key::Character(_))
+                    && !keys.any_pressed([
+                        KeyCode::ControlLeft,
+                        KeyCode::ControlRight,
+                        KeyCode::SuperLeft,
+                        KeyCode::SuperRight,
+                    ])))
+    });
+    key_events.clear();
+    if input_focus
+        .get()
+        .is_some_and(|entity| history_q.contains(entity))
+        && !typing
+    {
+        return;
+    }
     let Ok(input) = input_q.single() else {
         return;
     };
@@ -102,7 +125,7 @@ pub(crate) fn capture_console_input(
     keys: Res<ButtonInput<KeyCode>>,
     settings: ConsoleInputSettings,
     mut queue: ResMut<ConsoleCommandQueue>,
-    mut input_q: Query<&mut EditableText, With<ConsoleInput>>,
+    mut input_q: Query<(Entity, &mut EditableText), With<ConsoleInput>>,
     mut history_q: Query<&mut ScrollPosition, With<crate::ui::ConsoleHistory>>,
 ) {
     if !state.open {
@@ -112,10 +135,19 @@ pub(crate) fn capture_console_input(
         return;
     }
 
-    let Ok(mut input) = input_q.single_mut() else {
+    let Ok((entity, mut input)) = input_q.single_mut() else {
         key_events.read().for_each(drop);
         return;
     };
+    if settings
+        .focus
+        .as_ref()
+        .and_then(|focus| focus.get())
+        .is_some_and(|focused| focused != entity)
+    {
+        key_events.read().for_each(drop);
+        return;
+    }
     for ev in key_events.read() {
         if ev.state != ButtonState::Pressed {
             continue;
@@ -377,11 +409,13 @@ mod tests {
             bevy::input::InputPlugin,
             bevy::input_focus::InputFocusPlugin,
             bevy::input_focus::InputDispatchPlugin,
-            bevy::ui_widgets::EditableTextInputPlugin,
+            bevy::ui_widgets::TextInputPlugin,
         ))
         .add_message::<bevy::window::Ime>()
-        .add_message::<bevy::picking::prelude::Pointer<bevy::picking::prelude::Release>>()
+        .add_message::<bevy::picking::prelude::PointerRelease>()
         .init_resource::<UiScale>()
+        .init_resource::<Time<Real>>()
+        .init_resource::<bevy::picking::events::PointerState>()
         .init_resource::<bevy::text::FontCx>()
         .init_resource::<bevy::text::LayoutCx>()
         .init_resource::<Assets<Font>>()
@@ -424,15 +458,24 @@ mod tests {
             .add(Font::from_bytes(
                 include_bytes!("../assets/UbuntuMono-R.ttf").to_vec(),
             ));
-        let window = app.world_mut().spawn(bevy::window::PrimaryWindow).id();
+        let window = app
+            .world_mut()
+            .spawn((bevy::window::PrimaryWindow, Window::default()))
+            .id();
+        crate::ui::spawn_console_ui(
+            &mut app.world_mut().commands(),
+            &crate::ui::ConsoleAssets {
+                font: Handle::default(),
+            },
+            &ConsoleConfig::default(),
+            "",
+        );
+        app.world_mut().flush();
         let input = app
             .world_mut()
-            .spawn((
-                ConsoleInput,
-                EditableText::default(),
-                bevy::input_focus::AutoFocus,
-            ))
-            .id();
+            .query_filtered::<Entity, With<ConsoleInput>>()
+            .single(app.world())
+            .unwrap();
         app.update();
         app.world_mut()
             .resource_mut::<bevy::text::FontCx>()
@@ -536,12 +579,15 @@ mod tests {
             .init_resource::<Assets<Font>>()
             .add_message::<bevy::window::Ime>()
             .add_plugins(crate::ChillConsole::default());
-        let window = app.world_mut().spawn(bevy::window::PrimaryWindow).id();
+        let window = app
+            .world_mut()
+            .spawn((bevy::window::PrimaryWindow, Window::default()))
+            .id();
         let input = app
             .world_mut()
-            .spawn((ConsoleInput, EditableText::default()))
+            .spawn((ConsoleInput, bevy::ui_widgets::TextInput))
             .id();
-        let other_input = app.world_mut().spawn(EditableText::default()).id();
+        let other_input = app.world_mut().spawn(bevy::ui_widgets::TextInput).id();
 
         for open in [true, false] {
             app.world_mut().resource_mut::<ConsoleState>().open = open;
@@ -569,6 +615,112 @@ mod tests {
             );
             editor.pending_edits.clear();
         }
+
+        let output = app
+            .world_mut()
+            .spawn((
+                crate::ui::ConsoleHistoryText,
+                bevy::ui_widgets::TextInput,
+                bevy::text::TextReadWriteMode::ReadOnly,
+                bevy::input_focus::tab_navigation::TabIndex(0),
+                EditableText::new("an error to copy"),
+            ))
+            .id();
+        app.world_mut().resource_mut::<ConsoleState>().open = true;
+        app.world_mut().resource_mut::<ConsoleState>().cmd_history = vec!["help".into()];
+        app.world_mut().trigger(bevy::input_focus::AcquireFocus {
+            focused_entity: output,
+            window,
+        });
+        assert_eq!(app.world().resource::<InputFocus>().get(), Some(output));
+        app.world_mut()
+            .get_mut::<EditableText>(output)
+            .unwrap()
+            .pending_edits
+            .clear();
+        let modifier = if cfg!(target_os = "macos") {
+            KeyCode::SuperLeft
+        } else {
+            KeyCode::ControlLeft
+        };
+        let logical_modifier = if cfg!(target_os = "macos") {
+            Key::Super
+        } else {
+            Key::Control
+        };
+        for (key_code, logical_key, expected) in [
+            (
+                KeyCode::KeyA,
+                Key::Character("a".into()),
+                Some(TextEdit::SelectAll),
+            ),
+            (
+                KeyCode::KeyC,
+                Key::Character("c".into()),
+                Some(TextEdit::Copy),
+            ),
+            (KeyCode::KeyV, Key::Character("v".into()), None),
+            (KeyCode::ArrowUp, Key::ArrowUp, Some(TextEdit::Up(false))),
+            (KeyCode::Backspace, Key::Backspace, None),
+        ] {
+            app.world_mut()
+                .resource_mut::<ButtonInput<KeyCode>>()
+                .reset_all();
+            app.world_mut()
+                .resource_mut::<ButtonInput<Key>>()
+                .reset_all();
+            if matches!(logical_key, Key::Character(_)) {
+                app.world_mut()
+                    .resource_mut::<ButtonInput<KeyCode>>()
+                    .press(modifier);
+                app.world_mut()
+                    .resource_mut::<ButtonInput<Key>>()
+                    .press(logical_modifier.clone());
+            }
+            app.world_mut().write_message(KeyboardInput {
+                key_code,
+                logical_key,
+                state: ButtonState::Pressed,
+                text: None,
+                repeat: false,
+                window,
+            });
+            app.world_mut().run_schedule(PreUpdate);
+            assert_eq!(app.world().resource::<InputFocus>().get(), Some(output));
+            let mut editor = app.world_mut().get_mut::<EditableText>(output).unwrap();
+            editor.pending_edits.retain(
+                |edit| !matches!(edit, TextEdit::ImeSetCompose { value, .. } if value.is_empty()),
+            );
+            assert_eq!(
+                editor.pending_edits,
+                expected.into_iter().collect::<Vec<_>>()
+            );
+            editor.pending_edits.clear();
+            use bevy::ecs::system::RunSystemOnce;
+            app.world_mut()
+                .run_system_once(capture_console_input)
+                .unwrap();
+            assert!(app.world().resource::<ConsoleState>().input.is_empty());
+        }
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .reset_all();
+        app.world_mut()
+            .resource_mut::<ButtonInput<Key>>()
+            .reset_all();
+        app.world_mut().write_message(KeyboardInput {
+            key_code: KeyCode::KeyX,
+            logical_key: Key::Character("x".into()),
+            state: ButtonState::Pressed,
+            text: Some("x".into()),
+            repeat: false,
+            window,
+        });
+        app.world_mut().run_schedule(PreUpdate);
+        assert_eq!(app.world().resource::<InputFocus>().get(), Some(input));
+        assert!(
+            matches!(app.world().get::<EditableText>(input).unwrap().pending_edits.as_slice(), [TextEdit::Insert(text)] if text == "x")
+        );
     }
 
     fn echo(In(args): CommandArgs) -> String {

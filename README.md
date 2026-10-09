@@ -12,15 +12,18 @@ Press `` ` `` (backtick) to toggle the console open and closed.
 
 | `chill_bevy_console` | `bevy` |
 |---------------------------|--------|
+| `0.4`                     | `0.20` |
 | `0.3`                     | `0.19` |
 | `0.2`                     | `0.19` |
 | `0.1`                     | `0.18` |
 
 ## Install
 
+Requires Rust 1.97.1 or newer.
+
 ```toml
 [dependencies]
-chill_bevy_console = "0.3"
+chill_bevy_console = "0.4"
 ```
 
 Optional features:

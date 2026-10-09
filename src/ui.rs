@@ -2,12 +2,16 @@ use crate::config::ConsoleConfig;
 use crate::editor::set_editable_text;
 use crate::state::ConsoleState;
 use crate::{ConsoleBuffer, ConsoleLevel};
-use bevy::input_focus::AutoFocus;
+use bevy::input_focus::{AutoFocus, tab_navigation::TabIndex};
 use bevy::picking::pointer::PointerId;
-use bevy::picking::prelude::{Click, Drag, DragEnd, Pointer, PointerButton};
+use bevy::picking::prelude::{PointerButton, PointerClick, PointerDrag, PointerDragEnd};
 use bevy::prelude::*;
-use bevy::text::{EditableText, EditableTextFilter, LineHeight, TextCursorStyle, TextLayoutInfo};
-use bevy::ui::{ComputedNode, ScrollPosition, widget::TextScroll};
+use bevy::text::{
+    EditableText, EditableTextFilter, LineHeight, TextCursorStyle, TextLayoutInfo,
+    TextReadWriteMode,
+};
+use bevy::ui::{ComputedNode, ScrollPosition};
+use bevy::ui_widgets::TextInput;
 use std::collections::{HashSet, VecDeque};
 
 /// Updates the console view only while visible and after its state or output changes.
@@ -103,6 +107,10 @@ pub(crate) struct ConsoleHistoryContent;
 #[derive(Component, Default, Clone)]
 pub(crate) struct ConsoleHistoryLine;
 
+/// Read-only selection overlay; the parent Text keeps native intrinsic sizing.
+#[derive(Component)]
+pub(crate) struct ConsoleHistoryText;
+
 #[derive(Component, Default, Clone)]
 pub(crate) struct ConsoleInput;
 
@@ -124,6 +132,7 @@ struct ConsoleSwipeDismiss(HashSet<PointerId>);
 pub(crate) struct RenderedHistory {
     entity: Option<Entity>,
     lines: VecDeque<(u64, Entity)>,
+    scroll_follow: bool,
 }
 
 #[derive(Default)]
@@ -240,6 +249,8 @@ pub(crate) fn spawn_console_ui(
                             input_area.spawn((
                                 ConsoleInput,
                                 EditableText::new(initial_input),
+                                TextInput,
+                                TabIndex(0),
                                 // Mobile keyboards can commit their return key through IME
                                 // rather than KeyboardInput. Keep the console strictly
                                 // single-line so that commit cannot leave a stray newline.
@@ -249,6 +260,7 @@ pub(crate) fn spawn_console_ui(
                                     selection_color: config.input_border_color,
                                     unfocused_selection_color: Color::NONE,
                                     selected_text_color: None,
+                                    ..default()
                                 },
                                 console_text_font(&assets.font, config.font_size),
                                 TextColor(config.input_text_color),
@@ -298,14 +310,14 @@ pub(crate) fn update_console_ui(
     mut history_q: Query<(Entity, &mut ScrollPosition), With<ConsoleHistory>>,
     history_content_q: Query<Entity, With<ConsoleHistoryContent>>,
     mut history_line_q: Query<&mut BackgroundColor, With<ConsoleHistoryLine>>,
-    input_q: Query<(&EditableText, &TextLayoutInfo, &TextScroll), With<ConsoleInput>>,
+    input_q: Query<(&EditableText, &TextLayoutInfo), With<ConsoleInput>>,
     mut ghost_q: Query<(&mut Text, &mut Node), With<ConsoleInputGhost>>,
     dropdown_q: Query<(Entity, Option<&Children>), With<ConsoleDropdown>>,
     mut rendered_history: Local<RenderedHistory>,
     mut rendered_dropdown: Local<RenderedDropdown>,
 ) {
     // ── History lines ─────────────────────────────────────────────────────────
-    if let (Ok((_, mut scroll_pos)), Ok(history_content)) =
+    if let (Ok((_, scroll_pos)), Ok(history_content)) =
         (history_q.single_mut(), history_content_q.single())
     {
         let ui_recreated = rendered_history.entity != Some(history_content);
@@ -339,10 +351,45 @@ pub(crate) fn update_console_ui(
                             } else {
                                 Color::NONE
                             }),
-                            Text::new(line.text.clone()),
+                            Text::new(&line.text),
                             console_text_font(&font, config.history_font_size),
                             TextColor(history_line_color(line.level, &config)),
                         ))
+                        .with_children(|row| {
+                            // ponytail: selection stays within one output row; use a transcript widget for cross-row selection.
+                            row.spawn((
+                                ConsoleHistoryText,
+                                EditableText {
+                                    visible_lines: None,
+                                    ..EditableText::new(&line.text)
+                                },
+                                TextInput,
+                                TabIndex(0),
+                                TextReadWriteMode::ReadOnly,
+                                Node {
+                                    position_type: PositionType::Absolute,
+                                    left: Val::Px(0.0),
+                                    top: Val::Px(0.0),
+                                    width: Val::Percent(100.0),
+                                    height: Val::Percent(100.0),
+                                    ..default()
+                                },
+                                console_text_font(&font, config.history_font_size),
+                                TextColor(Color::NONE),
+                                TextCursorStyle {
+                                    color: Color::NONE,
+                                    selection_color: config.input_border_color,
+                                    selected_text_color: Some(history_line_color(
+                                        line.level, &config,
+                                    )),
+                                    ..default()
+                                },
+                            ))
+                            // TextInput consumes drags; retain touch scrolling and swipe dismissal.
+                            .observe(scroll_console_on_touch_drag)
+                            .observe(dismiss_console_on_two_finger_swipe_up)
+                            .observe(clear_swipe_dismiss_touch);
+                        })
                         .id();
                     rendered_history.lines.push_back((line.id, entity));
                 }
@@ -352,22 +399,27 @@ pub(crate) fn update_console_ui(
             let selected_line_id = state.selected_history_line_id();
             for (line_id, entity) in &rendered_history.lines {
                 if let Ok(mut background) = history_line_q.get_mut(*entity) {
-                    *background = BackgroundColor(if Some(*line_id) == selected_line_id {
+                    background.set_if_neq(BackgroundColor(if Some(*line_id) == selected_line_id {
                         config.history_highlight_bg
                     } else {
                         Color::NONE
-                    });
+                    }));
                 }
             }
         }
-        if state.scroll_follow {
-            scroll_pos.y = f32::MAX;
+        if state.scroll_follow
+            && (buffer.is_changed() || ui_recreated || !rendered_history.scroll_follow)
+        {
+            scroll_pos
+                .map_unchanged(|position| &mut position.y)
+                .set_if_neq(f32::MAX);
         }
+        rendered_history.scroll_follow = state.scroll_follow;
     }
 
-    if let Ok((mut ghost, mut ghost_node)) = ghost_q.single_mut() {
+    if let Ok((mut ghost, ghost_node)) = ghost_q.single_mut() {
         let input = input_q.single().ok();
-        let cursor = input.map(|(input, _, _)| input.editor().raw_selection().focus().index());
+        let cursor = input.map(|(input, _)| input.editor().raw_selection().focus().index());
         let ghost_str = (cursor == Some(state.input.len()))
             .then(|| {
                 state
@@ -383,16 +435,18 @@ pub(crate) fn update_console_ui(
             .flatten()
             .map(str::to_string)
             .unwrap_or_default();
-        *ghost = Text::new(ghost_str);
-        ghost_node.left = Val::Px(
-            input
-                .and_then(|(_, layout, scroll)| {
-                    layout
-                        .cursor
-                        .map(|(_, cursor)| (cursor.min.x - scroll.0.x) / layout.scale_factor)
-                })
-                .unwrap_or_default(),
-        );
+        ghost.set_if_neq(Text::new(ghost_str));
+        ghost_node
+            .map_unchanged(|node| &mut node.left)
+            .set_if_neq(Val::Px(
+                input
+                    .and_then(|(input, layout)| {
+                        layout.cursor.map(|(_, cursor)| {
+                            (cursor.min.x - input.viewport.offset.x) / layout.scale_factor
+                        })
+                    })
+                    .unwrap_or_default(),
+            ));
     }
 
     // ── Dropdown ──────────────────────────────────────────────────────────────
@@ -500,11 +554,11 @@ pub(crate) fn update_console_ui(
 /// Pointer drag coordinates are physical pixels, while `ScrollPosition` uses
 /// logical pixels, so account for the UI scale before applying the delta.
 fn scroll_console_on_touch_drag(
-    drag: On<Pointer<Drag>>,
+    drag: On<PointerDrag>,
     mut state: ResMut<ConsoleState>,
     mut history_q: Query<(&mut ScrollPosition, &ComputedNode), With<ConsoleHistory>>,
 ) {
-    if !drag.pointer_id.is_touch() || drag.button != PointerButton::Primary {
+    if !drag.pointer.id.is_touch() || drag.button != PointerButton::Primary {
         return;
     }
 
@@ -522,13 +576,13 @@ fn scroll_console_on_touch_drag(
 
 /// Closes the console after two touches make a deliberate upward swipe together.
 fn dismiss_console_on_two_finger_swipe_up(
-    mut drag: On<Pointer<Drag>>,
+    mut drag: On<PointerDrag>,
     mut swipe_q: Query<&mut ConsoleSwipeDismiss>,
     mut state: ResMut<ConsoleState>,
 ) {
     const SWIPE_DISMISS_DISTANCE: f32 = 80.0;
 
-    if !drag.pointer_id.is_touch()
+    if !drag.pointer.id.is_touch()
         || drag.button != PointerButton::Primary
         || drag.distance.y > -SWIPE_DISMISS_DISTANCE
         || drag.distance.y.abs() < drag.distance.x.abs()
@@ -536,10 +590,10 @@ fn dismiss_console_on_two_finger_swipe_up(
         return;
     }
 
-    let Ok(mut swipe) = swipe_q.get_mut(drag.event_target()) else {
+    let Ok(mut swipe) = swipe_q.single_mut() else {
         return;
     };
-    swipe.0.insert(drag.pointer_id);
+    swipe.0.insert(drag.pointer.id);
     if swipe.0.len() < 2 {
         return;
     }
@@ -550,17 +604,17 @@ fn dismiss_console_on_two_finger_swipe_up(
 
 /// A completed drag must not count toward a later two-finger gesture.
 fn clear_swipe_dismiss_touch(
-    drag_end: On<Pointer<DragEnd>>,
+    drag_end: On<PointerDragEnd>,
     mut swipe_q: Query<&mut ConsoleSwipeDismiss>,
 ) {
-    if let Ok(mut swipe) = swipe_q.get_mut(drag_end.event_target()) {
-        swipe.0.remove(&drag_end.pointer_id);
+    if let Ok(mut swipe) = swipe_q.single_mut() {
+        swipe.0.remove(&drag_end.pointer.id);
     }
 }
 
 /// Accepts a completion for either mouse clicks or touch taps.
 fn accept_completion_on_click(
-    mut click: On<Pointer<Click>>,
+    mut click: On<PointerClick>,
     completions: Query<&ConsoleCompletion>,
     mut state: ResMut<ConsoleState>,
     mut input_q: Query<&mut EditableText, With<ConsoleInput>>,
@@ -632,9 +686,57 @@ mod tests {
         app.world_mut()
             .entity_mut(history)
             .with_child((ConsoleHistoryContent, Node::default()));
+        let ghost = app
+            .world_mut()
+            .spawn((
+                super::ConsoleInputGhost,
+                Text::new(""),
+                Node {
+                    left: Val::Px(0.0),
+                    ..default()
+                },
+            ))
+            .id();
 
         app.update();
         assert_history_highlight(&mut app, "> second");
+
+        app.world_mut().clear_trackers();
+        app.world_mut().resource_mut::<ConsoleState>().enabled = false;
+        app.update();
+        assert!(
+            app.world_mut()
+                .query::<Ref<BackgroundColor>>()
+                .iter(app.world())
+                .all(|color| !color.is_changed())
+        );
+        let (text, node) = app
+            .world_mut()
+            .query::<(Ref<Text>, Ref<Node>)>()
+            .get(app.world(), ghost)
+            .unwrap();
+        assert!(!text.is_changed());
+        assert!(!node.is_changed());
+        assert!(
+            !app.world_mut()
+                .query::<Ref<ScrollPosition>>()
+                .get(app.world(), history)
+                .unwrap()
+                .is_changed()
+        );
+
+        app.world_mut().resource_mut::<ConsoleState>().scroll_follow = false;
+        app.world_mut()
+            .get_mut::<ScrollPosition>(history)
+            .unwrap()
+            .y = 80.0;
+        app.update();
+        app.world_mut().resource_mut::<ConsoleState>().scroll_follow = true;
+        app.update();
+        assert_eq!(
+            app.world().get::<ScrollPosition>(history).unwrap().y,
+            f32::MAX
+        );
 
         app.world_mut()
             .resource_mut::<ConsoleState>()
@@ -645,9 +747,24 @@ mod tests {
 
     fn assert_history_highlight(app: &mut App, expected: &str) {
         let highlight = app.world().resource::<ConsoleConfig>().history_highlight_bg;
-        let mut rows = app.world_mut().query::<(&Text, &BackgroundColor)>();
-        for (text, background) in rows.iter(app.world()) {
+        let mut rows = app
+            .world_mut()
+            .query::<(&Text, &BackgroundColor, &Children)>();
+        for (text, background, children) in rows.iter(app.world()) {
             assert_eq!(background.0 == highlight, text.0 == expected, "{}", text.0);
+            let overlay = children[0];
+            assert_eq!(
+                app.world().get::<bevy::text::TextReadWriteMode>(overlay),
+                Some(&bevy::text::TextReadWriteMode::ReadOnly)
+            );
+            assert_eq!(
+                app.world()
+                    .get::<bevy::text::EditableText>(overlay)
+                    .unwrap()
+                    .value()
+                    .to_string(),
+                text.0
+            );
         }
     }
 }
