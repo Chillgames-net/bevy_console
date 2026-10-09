@@ -1,5 +1,12 @@
 # Usage
 
+## Selecting output
+
+Drag across an output row to select text, then press Ctrl+C (Cmd+C on macOS)
+to copy it. Double-click selects a word; triple-click selects the whole row.
+Selection stays within one row, including its wrapped lines. Output is read-only.
+Typing, Enter, Tab, or Escape returns focus to the command input.
+
 ## Adding commands
 
 Commands are plain Bevy systems that receive `CommandArgs` (`In<Args>`) and return a `String` or `ConsoleResult`. `String` is converted to an info-level `ConsoleResult` automatically:

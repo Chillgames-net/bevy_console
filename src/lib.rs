@@ -96,11 +96,12 @@ extern crate self as chill_bevy_console;
 
 #[cfg(feature = "embedded-font")]
 use bevy::asset::uuid_handle;
+use bevy::input_focus::pointer_focus::PointerFocusPlugin;
 use bevy::input_focus::{InputDispatchPlugin, InputFocusPlugin, InputFocusSystems};
 use bevy::prelude::*;
 use bevy::reflect::{FromReflect, GetTypeRegistration, Typed};
 use bevy::state::state::FreelyMutableState;
-use bevy::ui_widgets::EditableTextInputPlugin;
+use bevy::ui_widgets::TextInputPlugin;
 
 // ── Embedded font ──────────────────────────────────────────────────────────────
 
@@ -279,8 +280,11 @@ impl Plugin for ChillConsole {
         if !app.is_plugin_added::<InputDispatchPlugin>() {
             app.add_plugins(InputDispatchPlugin);
         }
-        if !app.is_plugin_added::<EditableTextInputPlugin>() {
-            app.add_plugins(EditableTextInputPlugin);
+        if !app.is_plugin_added::<TextInputPlugin>() {
+            app.add_plugins(TextInputPlugin);
+        }
+        if !app.is_plugin_added::<PointerFocusPlugin>() {
+            app.add_plugins(PointerFocusPlugin);
         }
 
         // Embed font bytes into Assets<Font> before ConsoleAssets is initialized,

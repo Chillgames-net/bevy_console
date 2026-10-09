@@ -2,7 +2,7 @@
 
 use crate::ConsoleState;
 use crate::ui::ConsoleHistory;
-use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
+use bevy::input::mouse::{MouseScrollPixelsPerLine, MouseScrollUnit, MouseWheel};
 use bevy::prelude::*;
 use bevy::ui::{ComputedNode, ScrollPosition};
 
@@ -10,6 +10,7 @@ const CONSOLE_SCROLL_SPEED: f32 = 1.25;
 
 pub(crate) fn scroll_console(
     mut mouse_wheel: MessageReader<MouseWheel>,
+    pixels_per_line: Res<MouseScrollPixelsPerLine>,
     mut state: ResMut<ConsoleState>,
     keys: Res<ButtonInput<KeyCode>>,
     mut history_q: Query<(&mut ScrollPosition, &ComputedNode), With<ConsoleHistory>>,
@@ -17,7 +18,7 @@ pub(crate) fn scroll_console(
     let wheel_pixels: f32 = mouse_wheel
         .read()
         .map(|event| match event.unit {
-            MouseScrollUnit::Line => event.y * MouseScrollUnit::SCROLL_UNIT_CONVERSION_FACTOR,
+            MouseScrollUnit::Line => event.y * *pixels_per_line,
             MouseScrollUnit::Pixel => event.y,
         })
         .sum();
@@ -59,5 +60,57 @@ pub(crate) fn scroll_console(
         }
     } else if new_y >= max_scroll - 1.0 && !state.scroll_follow {
         state.scroll_follow = true;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bevy::input::touch::TouchPhase;
+
+    #[test]
+    fn wheel_units_use_platform_calibration_and_ui_scale() {
+        let mut app = App::new();
+        let mut pixels_per_line = MouseScrollPixelsPerLine::default();
+        *pixels_per_line = 80.0;
+        app.insert_resource(pixels_per_line)
+            .insert_resource(ConsoleState {
+                open: true,
+                ..default()
+            })
+            .init_resource::<ButtonInput<KeyCode>>()
+            .add_message::<MouseWheel>()
+            .add_systems(Update, scroll_console);
+        let history = app
+            .world_mut()
+            .spawn((
+                ConsoleHistory,
+                ScrollPosition(Vec2::new(0.0, 300.0)),
+                ComputedNode {
+                    size: Vec2::splat(200.0),
+                    content_size: Vec2::new(200.0, 1200.0),
+                    inverse_scale_factor: 0.5,
+                    ..default()
+                },
+            ))
+            .id();
+        for (unit, y, expected) in [
+            (MouseScrollUnit::Line, 1.0, 250.0),
+            (MouseScrollUnit::Pixel, 80.0, 200.0),
+        ] {
+            app.world_mut().write_message(MouseWheel {
+                unit,
+                x: 0.0,
+                y,
+                window: Entity::PLACEHOLDER,
+                phase: TouchPhase::Moved,
+            });
+            app.update();
+            assert_eq!(
+                app.world().get::<ScrollPosition>(history).unwrap().y,
+                expected
+            );
+            assert!(!app.world().resource::<ConsoleState>().scroll_follow);
+        }
     }
 }

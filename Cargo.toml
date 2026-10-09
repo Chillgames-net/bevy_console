@@ -4,9 +4,9 @@ resolver = "3"
 
 [package]
 name = "chill_bevy_console"
-version = "0.3.4"
+version = "0.4.0"
 edition = "2024"
-rust-version = "1.95"
+rust-version = "1.97.1"
 description = "A configurable developer console plugin for Bevy games"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/Chillgames-net/bevy_console"
@@ -41,7 +41,7 @@ persistent-history = []
 resource-properties = ["dep:chill_bevy_console_derive"]
 
 [dependencies]
-bevy = { version = "0.19", default-features = false, features = [
+bevy = { version = "0.20", default-features = false, features = [
     "keyboard",
     "mouse",
     "bevy_log",
@@ -53,11 +53,11 @@ chill_bevy_console_derive = { version = "0.3.2", path = "derive", optional = tru
 
 # Mobile targets use Bevy's in-process clipboard fallback.
 [target.'cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))'.dependencies]
-bevy = { version = "0.19", default-features = false, features = ["system_clipboard"] }
+bevy = { version = "0.20", default-features = false, features = ["system_clipboard"] }
 
 # Examples use DefaultPlugins, which needs bevy's default features (winit, etc.).
 [dev-dependencies]
-bevy = "0.19"
+bevy = "0.20"
 
 [[example]]
 name = "persistent_history"
