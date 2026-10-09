@@ -344,6 +344,7 @@ pub(crate) fn update_console_ui(
                             ConsoleHistoryLine,
                             Node {
                                 width: Val::Percent(100.0),
+                                flex_shrink: 0.0,
                                 ..default()
                             },
                             BackgroundColor(if Some(line.id) == state.selected_history_line_id() {
@@ -351,11 +352,18 @@ pub(crate) fn update_console_ui(
                             } else {
                                 Color::NONE
                             }),
-                            Text::new(&line.text),
-                            console_text_font(&font, config.history_font_size),
-                            TextColor(history_line_color(line.level, &config)),
                         ))
                         .with_children(|row| {
+                            // Text must remain a leaf for intrinsic height measurement.
+                            row.spawn((
+                                Text::new(&line.text),
+                                Node {
+                                    width: Val::Percent(100.0),
+                                    ..default()
+                                },
+                                console_text_font(&font, config.history_font_size),
+                                TextColor(history_line_color(line.level, &config)),
+                            ));
                             // ponytail: selection stays within one output row; use a transcript widget for cross-row selection.
                             row.spawn((
                                 ConsoleHistoryText,
@@ -658,6 +666,85 @@ mod tests {
     use bevy::ui::ScrollPosition;
 
     #[test]
+    fn history_rows_have_height_and_scroll_into_view() {
+        let mut app = App::new();
+        app.add_plugins((
+            MinimalPlugins,
+            bevy::transform::TransformPlugin,
+            bevy::asset::AssetPlugin::default(),
+            bevy::input::InputPlugin,
+            bevy::picking::DefaultPickingPlugins,
+            bevy::window::WindowPlugin::default(),
+            bevy::a11y::AccessibilityPlugin,
+            bevy::camera::CameraPlugin,
+            bevy::image::ImagePlugin::default(),
+            bevy::mesh::MeshPlugin,
+            bevy::text::TextPlugin,
+            bevy::ui::UiPlugin,
+            bevy::input_focus::InputFocusPlugin,
+            bevy::ui_widgets::TextInputPlugin,
+        ))
+        .init_asset::<bevy::image::TextureAtlasLayout>();
+        app.insert_resource(ConsoleConfig::default())
+            .insert_resource(ConsoleAssets {
+                font: Handle::default(),
+            })
+            .insert_resource(ConsoleState {
+                open: true,
+                ..default()
+            })
+            .init_resource::<ConsoleBuffer>()
+            .add_systems(
+                Startup,
+                |mut commands: Commands, assets: Res<ConsoleAssets>, config: Res<ConsoleConfig>| {
+                    commands.spawn(Camera2d);
+                    super::spawn_console_ui(&mut commands, &assets, &config, "");
+                },
+            )
+            .add_systems(Update, update_console_ui);
+        for _ in 0..80 {
+            app.world_mut().resource_mut::<ConsoleBuffer>().push(
+                ConsoleLevel::Info,
+                ConsoleLineSource::System,
+                "visible history output",
+            );
+        }
+        app.finish();
+        app.cleanup();
+        for _ in 0..5 {
+            app.update();
+        }
+        let world = app.world_mut();
+        let mut rows = world.query_filtered::<&ComputedNode, With<super::ConsoleHistoryLine>>();
+        assert_eq!(rows.iter(world).count(), 80);
+        assert!(
+            rows.iter(world).all(|row| row.size.y > 0.0),
+            "history rows collapsed"
+        );
+        let mut history = world.query_filtered::<&ComputedNode, With<ConsoleHistory>>();
+        let history = history.single(world).unwrap();
+        assert!(
+            history.scroll_position.y > 0.0,
+            "history should scroll to its overflowing output"
+        );
+        let mut content = world.query_filtered::<&Children, With<ConsoleHistoryContent>>();
+        let last_row = *content.single(world).unwrap().last().unwrap();
+        let children = world.get::<Children>(last_row).unwrap();
+        assert!(
+            !world
+                .get::<bevy::text::TextLayoutInfo>(children[0])
+                .unwrap()
+                .glyphs
+                .is_empty()
+        );
+        assert_eq!(
+            world.get::<ComputedNode>(last_row).unwrap().size,
+            world.get::<ComputedNode>(children[1]).unwrap().size,
+            "selection overlay must cover the visible row"
+        );
+    }
+
+    #[test]
     fn history_highlight_follows_the_recalled_command() {
         let mut buffer = ConsoleBuffer::default();
         buffer.push(ConsoleLevel::Info, ConsoleLineSource::System, "> first");
@@ -749,10 +836,11 @@ mod tests {
         let highlight = app.world().resource::<ConsoleConfig>().history_highlight_bg;
         let mut rows = app
             .world_mut()
-            .query::<(&Text, &BackgroundColor, &Children)>();
-        for (text, background, children) in rows.iter(app.world()) {
+            .query_filtered::<(&BackgroundColor, &Children), With<super::ConsoleHistoryLine>>();
+        for (background, children) in rows.iter(app.world()) {
+            let text = app.world().get::<Text>(children[0]).unwrap();
             assert_eq!(background.0 == highlight, text.0 == expected, "{}", text.0);
-            let overlay = children[0];
+            let overlay = children[1];
             assert_eq!(
                 app.world().get::<bevy::text::TextReadWriteMode>(overlay),
                 Some(&bevy::text::TextReadWriteMode::ReadOnly)
